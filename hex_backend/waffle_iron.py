@@ -546,11 +546,21 @@ def main():
         print(f"🧪 RUNNING MINI-BAKE (12x12 grid around Stubai, S3 Disabled)")
         S3_ENABLED = False
 
-    # --- CLEANUP ---
+    # --- CLEANUP (Sandbox-safe) ---
+    # In sandboxes, these dirs contain per-file symlinks to main repo.
+    # We must remove contents individually to avoid following symlinks.
     dirs_to_wipe = ["frontend/app/tiles_bin", "frontend/app/aerial_tiles"]
     print(f"🧹 Cleaning old baked data in {dirs_to_wipe}...")
     for d in dirs_to_wipe:
-        if os.path.exists(d):
+        if os.path.islink(d):
+            os.unlink(d)
+        elif os.path.exists(d):
+            for item in os.listdir(d):
+                item_path = os.path.join(d, item)
+                if os.path.isdir(item_path) and not os.path.islink(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.unlink(item_path)
             shutil.rmtree(d)
         os.makedirs(d, exist_ok=True)
 

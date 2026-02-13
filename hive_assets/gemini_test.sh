@@ -5,6 +5,8 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # Parse arguments
 URL="${1:-https://wheatley.cloud/powfinder/hexagons/app/}"
 ADDENDUM=""
@@ -23,7 +25,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Setup output directory
-OUTPUT_DIR="/Users/cole/dev/Hexagons/hive_assets/.test_results/test-$(date +%s)"
+OUTPUT_DIR="$SCRIPT_DIR/.test_results/test-$(date +%s)"
 mkdir -p "$OUTPUT_DIR"
 
 echo "=== Gemini Visual Test ==="
@@ -42,7 +44,7 @@ EXPECTED BEHAVIOR:
 - Camera controls (zoom/pan) should work smoothly
 
 Your task:
-1. Run: node /Users/cole/dev/Hexagons/hive_assets/playwright_screenshots.js $URL $OUTPUT_DIR
+1. Run: node $SCRIPT_DIR/playwright_screenshots.js $URL $OUTPUT_DIR
 2. Wait for completion
 3. Analyze all screenshots in $OUTPUT_DIR
 4. Check for visual bugs: z-fighting, missing geometry, black screens, wireframes, rendering artifacts
