@@ -222,11 +222,24 @@ export class HexSearch {
             }
 
             const activeClass = (idx === this.activeIndex) ? 'active' : '';
+
+            // Geographic Bounds Check
+            let isOutside = false;
+            let statusLabel = '';
+            if (window.pistonViewer && window.pistonViewer.manifest && window.pistonViewer.manifest.bounds) {
+                const worldPos = latLonToWorld(res.lat, res.lon);
+                const b = window.pistonViewer.manifest.bounds;
+                if (worldPos.x < b.min_x || worldPos.x > b.max_x || worldPos.y < b.min_y || worldPos.y > b.max_y) {
+                    isOutside = true;
+                    statusLabel = ' <span style="color: #ff4757; font-size: 0.7rem; font-weight: 800;">[OUTSIDE MAP]</span>';
+                }
+            }
+
             const meta = res.type === 'peak' ? `${res.ele}m • Peak` : 'Ski Resort';
 
             html += `
-                <div class="result-item ${res.type} ${activeClass}" data-idx="${idx}">
-                    <span class="name">${res.name}</span>
+                <div class="result-item ${res.type} ${activeClass} ${isOutside ? 'outside' : ''}" data-idx="${idx}" ${isOutside ? 'style="opacity: 0.5;"' : ''}>
+                    <span class="name">${res.name}${statusLabel}</span>
                     <span class="meta">${meta}</span>
                 </div>
             `;
@@ -275,6 +288,16 @@ export class HexSearch {
 
         const item = this.currentResults[idx];
         const worldPos = latLonToWorld(item.lat, item.lon);
+
+        // Final Bounds Check Before Flight
+        if (window.pistonViewer && window.pistonViewer.manifest && window.pistonViewer.manifest.bounds) {
+            const b = window.pistonViewer.manifest.bounds;
+            if (worldPos.x < b.min_x || worldPos.x > b.max_x || worldPos.y < b.min_y || worldPos.y > b.max_y) {
+                console.log(`Blocked navigation to ${item.name} - Outside map bounds.`);
+                if (window.pistonViewer.log) window.pistonViewer.log(`"${item.name}" is outside the current map area.`, "info");
+                return;
+            }
+        }
 
         console.log(`Zooming to ${item.name}:`, worldPos);
 

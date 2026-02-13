@@ -20,7 +20,7 @@ fi
 
 # Run the bake
 # We use stdbuf to ensure python output isn't buffered so we can tail the log
-python3 -u hex_backend/waffle_iron.py 2>&1 | tee bake_log_$(date +%Y%m%d_%H%M%S).log
+python3 -u hex_backend/waffle_iron.py --full 2>&1 | tee bake_log_$(date +%Y%m%d_%H%M%S).log
 
 echo "--------------------------------------------------"
 echo "✅ Bake Complete."

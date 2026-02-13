@@ -16,10 +16,10 @@ import rasterio.windows
 import gc
 import re
 from shapely.geometry import Polygon, box
-from multiprocessing import Pool, cpu_count
+import argparse
+import shutil
 import sys
 import struct
-import subprocess
 from pyproj import Transformer
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -31,11 +31,11 @@ def latlon_to_world_meters(lat, lon):
     return transformer.transform(lon, lat)
 
 # =============================================================================
-# S3 CONFIGURATION
+# GLOBAL CONFIG (Modified by args)
 # =============================================================================
-S3_ENABLED = True
+S3_ENABLED = False # Default to False
 S3_BUCKET = "wheatley.cloud"
-S3_PREFIX = "powfinder/hexagons/app"
+S3_PREFIX = "powfinder/app" # Changed from "powfinder/hexagons/app"
 
 # =============================================================================
 # CONSTANTS & CONFIGURATION
@@ -43,16 +43,15 @@ S3_PREFIX = "powfinder/hexagons/app"
 TEXTURE_PADDING_PX = 64  
 WEB_P_QUALITY = 10
 DEBUG_MODE = False
-TARGET_LAT = 46.98705560886202
-TARGET_LON = 11.115050838788871
 
-# Kappl: 47.06689, 10.35909
-TARGET_LAT = 47.06689
-TARGET_LON = 10.35909
+# Stubai Center (For Mini-Bake)
+STUBAI_LAT = 46.98705560886202
+STUBAI_LON = 11.115050838788871
 
-# Stubai (Commented Out)
-# TARGET_LAT = 46.98705560886202
-# TARGET_LON = 11.115050838788871
+# Default to Stubai for mini-bake
+TARGET_LAT = STUBAI_LAT
+TARGET_LON = STUBAI_LON
+MINI_BAKE_GRID_SIZE = 12 # 12x12 grid for mini-bake
 
 DEM_PATH = "hex_backend/DGM_Tirol_5m_epsg31254_2006_2020.tif"
 GRADIENT_PATH = "hex_backend/DGM_Tirol_gradient_cached.tif" # New Graph Cache
@@ -61,7 +60,7 @@ AERIAL_DIR = "hex_backend/aerial_tifs"
 def upload_to_s3(local_path):
     """
     Uploads a file to S3 immediately.
-    Maps local 'frontend/hexagons/app/...' to S3 'powfinder/hexagons/app/...'
+    Maps local 'frontend/app/...' to S3 'powfinder/app/...'
     """
     if not S3_ENABLED: return
     
@@ -201,7 +200,7 @@ def get_or_create_gradient_map(dem_path, output_path, upsample_factor=1):
     print(f"✅ Generated Gradient Map in {time.time() - start_time:.2f}s")
     return rasterio.open(output_path)
 
-def bake_sector_textures(SX, SY, valid_tifs, output_dir="frontend/hexagons/app/aerial_tiles"):
+def bake_sector_textures(SX, SY, valid_tifs, output_dir="frontend/app/aerial_tiles"):
     import PIL.Image as Image
     from rasterio.windows import from_bounds
     if not os.path.exists(output_dir): os.makedirs(output_dir)
@@ -286,7 +285,7 @@ def get_diamond_stats(grad_ds, p1, p2):
     slope_deg = math.degrees(slope_rad)
     return slope_deg
 
-def bake_sector_binary(SX, SY, dem_data, dem_transform, grad_ds, output_dir="frontend/hexagons/app/tiles_bin"):
+def bake_sector_binary(SX, SY, dem_data, dem_transform, grad_ds, output_dir="frontend/app/tiles_bin"):
     if not os.path.exists(output_dir): os.makedirs(output_dir)
     min_x, min_y, max_x, max_y = coord_util.sector_id_to_bounds_meters(SX, SY)
 
@@ -521,47 +520,98 @@ def bake_sector_binary(SX, SY, dem_data, dem_transform, grad_ds, output_dir="fro
     upload_to_s3(bin_path)
 
 def main():
-    print("🧇 Waffle Iron v4.0: Uber-Skirt + Normals")
-    
+    global S3_ENABLED
+    parser = argparse.ArgumentParser(description="🧇 Waffle Iron v4.0")
+    parser.add_argument("--full", action="store_true", help="Run full global bake (defaults to 12x12 Mini-Bake)")
+    args = parser.parse_args()
+
+    # Disk Space Check
+    import shutil as disk_check
+    total, used, free = disk_check.disk_usage("/")
+    free_gb = free / (1024**3)
+    if free_gb < 5.0:
+        print(f"⚠️  WARNING: Only {free_gb:.1f}GB of free disk space available!")
+        print(f"   The bake may fail if disk fills up. Consider freeing space first.")
+        response = input("   Continue anyway? (y/N): ")
+        if response.lower() != 'y':
+            print("Aborting.")
+            return
+
+    if args.full:
+        print("🚀 RUNNING FULL GLOBAL BAKE (S3 Enabled)")
+        print("⚠️  This will process ~30,000 TIFs and may take 12+ hours.")
+        print("⚠️  Memory usage can spike. Monitor system resources.")
+        S3_ENABLED = True
+    else:
+        print(f"🧪 RUNNING MINI-BAKE (12x12 grid around Stubai, S3 Disabled)")
+        S3_ENABLED = False
+
+    # --- CLEANUP ---
+    dirs_to_wipe = ["frontend/app/tiles_bin", "frontend/app/aerial_tiles"]
+    print(f"🧹 Cleaning old baked data in {dirs_to_wipe}...")
+    for d in dirs_to_wipe:
+        if os.path.exists(d):
+            shutil.rmtree(d)
+        os.makedirs(d, exist_ok=True)
+
     print("Loading DEM...")
     with rasterio.open(DEM_PATH) as dem:
         dem_data = dem.read(1)
         dem_transform = dem.transform 
         dem_poly = box(*dem.bounds)
 
-    upsample = 2 if not DEBUG_MODE else 1
-    # Cache now stores Gradient (dx, dy)
+    upsample = 2
     grad_ds = get_or_create_gradient_map(DEM_PATH, GRADIENT_PATH, upsample_factor=upsample)
 
     valid_tifs = []
-    for f in glob.glob(os.path.join(AERIAL_DIR, "*.tif")):
-        try:
-            with rasterio.open(f) as src: valid_tifs.append({"path": f, "poly": box(*src.bounds)})
-        except: pass
 
-    # Calculate Bounds from TIFs
-    print(f"Scanning TIF bounds for {len(valid_tifs)} files...")
-    all_min_x, all_min_y = 1e12, 1e12
-    all_max_x, all_max_y = -1e12, -1e12
+    # Calculate Bounds
+    if args.full:
+        print("Scanning ALL TIFs...")
+        valid_tifs = []
+        for f in glob.glob(os.path.join(AERIAL_DIR, "*.tif")):
+            try:
+                with rasterio.open(f) as src: valid_tifs.append({"path": f, "poly": box(*src.bounds)})
+            except: pass
+        
+        all_min_x, all_min_y = 1e12, 1e12
+        all_max_x, all_max_y = -1e12, -1e12
+        for t in valid_tifs:
+            b = t["poly"].bounds
+            all_min_x, all_min_y = min(all_min_x, b[0]), min(all_min_y, b[1])
+            all_max_x, all_max_y = max(all_max_x, b[2]), max(all_max_y, b[3])
+        
+        min_sx, min_sy = coord_util.world_to_sector_id(all_min_x, all_min_y)
+        max_sx, max_sy = coord_util.world_to_sector_id(all_max_x, all_max_y)
+    else:
+        # Mini-Bake Range
+        cx, cy = latlon_to_world_meters(STUBAI_LAT, STUBAI_LON)
+        csx, csy = coord_util.world_to_sector_id(cx, cy)
+        min_sx, max_sx = csx - 6, csx + 5
+        min_sy, max_sy = csy - 6, csy + 5
+        
+        # Proper Bounding Box for the entire Mini-Bake Area
+        m_x1, m_y1, _, _ = coord_util.sector_id_to_bounds_meters(min_sx, min_sy)
+        _, _, m_x2, m_y2 = coord_util.sector_id_to_bounds_meters(max_sx, max_sy)
+        mini_box = box(m_x1, m_y1, m_x2, m_y2)
 
-    for t in valid_tifs:
-        b = t["poly"].bounds # (minx, miny, maxx, maxy)
-        all_min_x = min(all_min_x, b[0])
-        all_min_y = min(all_min_y, b[1])
-        all_max_x = max(all_max_x, b[2])
-        all_max_y = max(all_max_y, b[3])
+        # Only load intersecting TIFs for Stubai area
+        print("Filtering TIFs for Mini-Bake area...")
+        for f in glob.glob(os.path.join(AERIAL_DIR, "*.tif")):
+            try:
+                # Quick check: only open if name hints at relevance or just open and check bounds
+                with rasterio.open(f) as src:
+                    t_poly = box(*src.bounds)
+                    if t_poly.intersects(mini_box):
+                        valid_tifs.append({"path": f, "poly": t_poly})
+            except: pass
 
-    min_sx, min_sy = coord_util.world_to_sector_id(all_min_x, all_min_y)
-    max_sx, max_sy = coord_util.world_to_sector_id(all_max_x, all_max_y)
-
-    print(f"Global Sector Range: SX[{min_sx} to {max_sx}], SY[{min_sy} to {max_sy}]")
+    print(f"Sector Range: SX[{min_sx} to {max_sx}], SY[{min_sy} to {max_sy}] ({ (max_sx-min_sx+1)*(max_sy-min_sy+1) } total)")
 
     for sx in range(min_sx, max_sx + 1):
         for sy in range(min_sy, max_sy + 1):
             sector_box = box(*coord_util.sector_id_to_bounds_meters(sx, sy))
             if dem_poly.intersects(sector_box):
-                # Only cook if it actually overlaps with one of our imagery TIFs
-                # (Prevents cooking empty green/black space if DEM is larger than imagery)
                 has_imagery = any(t["poly"].intersects(sector_box) for t in valid_tifs)
                 if has_imagery:
                     print(f"Cooking Sector {sx}, {sy}...")
@@ -571,7 +621,7 @@ def main():
 
     generate_manifest.generate_manifest()
     # Upload manifest last
-    manifest_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/hexagons/app/tile_manifest.json"))
+    manifest_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/app/tile_manifest.json"))
     upload_to_s3(manifest_path)
     print("Done.")
 

@@ -5,8 +5,8 @@ import sys
 import coordinate_utility as coord_util
 
 # CONFIG
-BINARY_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/hexagons/app/tiles_bin"))
-OUTPUT_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/hexagons/app/tile_manifest.json"))
+BINARY_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/app/tiles_bin"))
+OUTPUT_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/app/tile_manifest.json"))
 
 def generate_manifest():
     print(f"🔍 Manifest Generator looking in: {BINARY_DIR}")

@@ -20,3 +20,9 @@ hex_backend/baked_sectors/
 hex_backend/aerial_tifs/
 hex_backend/TIFS/
 hex_backend/stubai/
+
+# Worktree sandboxes
+sandboxes/
+
+# Test outputs
+hive_assets/.test_results/
