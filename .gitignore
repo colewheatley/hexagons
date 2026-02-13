@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# OS files
+.DS_Store
+
+# Programming
+__pycache__/
+*.py[cod]
+
+# Large Data
+*.tif
+*.tiff
+*.ktx2
+
+# Generated Assets (Tiny Assets)
+frontend/app/tiles_bin/
+frontend/app/aerial_tiles/
+hex_backend/baked_sectors/
+hex_backend/aerial_tifs/
+hex_backend/TIFS/
+hex_backend/stubai/

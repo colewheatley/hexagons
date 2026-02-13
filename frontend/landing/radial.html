@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Hex Painter - Radial Layering</title>
+    <style>
+        body {
+            background: #020617;
+            font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+            overflow: hidden;
+            color: white;
+            margin: 0;
+        }
+
+        /* Top Info */
+        .header {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            pointer-events: none;
+        }
+
+        .header h3 {
+            margin: 0;
+            color: #38bdf8;
+            font-weight: 300;
+            letter-spacing: 1px;
+        }
+
+        /* Bottom Drawer */
+        .drawer {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 80px;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(20px);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 40px;
+            z-index: 1000;
+            padding: 0 40px;
+            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .tool-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            opacity: 0.5;
+        }
+
+        .color-palette {
+            display: flex;
+            gap: 10px;
+        }
+
+        .swatch {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
+
+        .swatch:hover {
+            transform: scale(1.2);
+        }
+
+        .swatch.active {
+            border-color: white;
+            transform: scale(1.1);
+            box-shadow: 0 0 15px currentColor;
+        }
+
+        /* Swatch Colors */
+        .bg-0 {
+            background: #1e293b;
+            color: #1e293b;
+        }
+
+        .bg-1 {
+            background: #3b82f6;
+            color: #3b82f6;
+        }
+
+        .bg-2 {
+            background: #ef4444;
+            color: #ef4444;
+        }
+
+        .bg-3 {
+            background: #10b981;
+            color: #10b981;
+        }
+
+        .bg-4 {
+            background: #f59e0b;
+            color: #f59e0b;
+        }
+
+        .bg-5 {
+            background: #8b5cf6;
+            color: #8b5cf6;
+        }
+
+        .radius-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 5px 15px;
+            border-radius: 20px;
+        }
+
+        input[type="range"] {
+            width: 150px;
+            accent-color: #38bdf8;
+            cursor: pointer;
+        }
+
+        .radius-value {
+            font-family: monospace;
+            font-size: 18px;
+            color: #38bdf8;
+            width: 25px;
+        }
+
+        /* Viewport */
+        #viewport {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            cursor: crosshair;
+        }
+
+        #svg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            overflow: visible;
+            z-index: 50;
+        }
+
+        #grid-container {
+            transform-style: preserve-3d;
+        }
+
+        /* Hex Content */
+        .hex {
+            position: absolute;
+            width: 52px;
+            height: 60px;
+            margin-left: -26px;
+            margin-top: -30px;
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.1s ease, background 0.3s ease;
+            will-change: transform;
+            background: rgba(255, 255, 255, 0.08);
+            /* The border color */
+        }
+
+        .hex::before {
+            content: '';
+            position: absolute;
+            inset: 1px;
+            background: #0f172a;
+            /* Face background */
+            clip-path: inherit;
+            z-index: -1;
+            transition: background 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .hex:hover {
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.4);
+        }
+
+        .hex span {
+            font-size: 8px;
+            opacity: 0.4;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+
+        .hex:hover span {
+            opacity: 1;
+        }
+
+        /* Painting classes override the ::before background */
+        .p-0::before {
+            background: #1e293b;
+        }
+
+        .p-1::before {
+            background: #3b82f6;
+        }
+
+        .p-2::before {
+            background: #ef4444;
+        }
+
+        .p-3::before {
+            background: #10b981;
+        }
+
+        .p-4::before {
+            background: #f59e0b;
+        }
+
+        .p-5::before {
+            background: #8b5cf6;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <h3>Radial Painter</h3>
+    </div>
+
+    <div id="viewport">
+        <svg id="svg-layer"></svg>
+        <div id="grid-container"></div>
+    </div>
+
+    <div class="drawer">
+        <div class="tool-section">
+            <span class="label">Color Profile</span>
+            <div class="color-palette" id="palette">
+                <div class="swatch bg-0" data-idx="0"></div>
+                <div class="swatch bg-1 active" data-idx="1"></div>
+                <div class="swatch bg-2" data-idx="2"></div>
+                <div class="swatch bg-3" data-idx="3"></div>
+                <div class="swatch bg-4" data-idx="4"></div>
+                <div class="swatch bg-5" data-idx="5"></div>
+            </div>
+        </div>
+
+        <div class="tool-section">
+            <span class="label">Brush Layers</span>
+            <div class="radius-selector">
+                <input type="range" id="radiusInput" min="1" max="10" value="1">
+                <span class="radius-value" id="radiusDisplay">1</span>
+            </div>
+        </div>
+
+        <div class="tool-section">
+            <button id="clearBtn"
+                style="background:none; border: 1px solid rgba(255,255,255,0.2); color:white; padding: 5px 15px; border-radius: 4px; cursor:pointer; font-size:12px;">Clear
+                All</button>
+        </div>
+    </div>
+
+    <script>
+        const container = document.getElementById('grid-container');
+        const radiusInput = document.getElementById('radiusInput');
+        const radiusDisplay = document.getElementById('radiusDisplay');
+        const clearBtn = document.getElementById('clearBtn');
+        const palette = document.getElementById('palette');
+
+        const HEX_SIZE = 30; // Slightly smaller to fit more
+        const GRID_LIMIT = 20; // Radius of the whole viewport
+
+        let activeProfile = 1;
+        let brushSize = 1; // 1 = center only, 2 = 1 layer, etc.
+
+        // Hex Registry [q,r] -> Element
+        const hexLookup = new Map();
+
+        function hexToPixel(q, r) {
+            const x = HEX_SIZE * Math.sqrt(3) * (q + r / 2);
+            const y = HEX_SIZE * 3 / 2 * r;
+            return { x, y };
+        }
+
+        function getDistance(q1, r1, q2, r2) {
+            return (Math.abs(q1 - q2) + Math.abs(q1 + r1 - q2 - r2) + Math.abs(r1 - r2)) / 2;
+        }
+
+        function paintHex(q, r, profile) {
+            const key = `${q},${r}`;
+            const el = hexLookup.get(key);
+            if (!el) return;
+
+            // Remove old profile
+            for (let i = 0; i < 6; i++) el.classList.remove(`p-${i}`);
+            el.classList.add(`p-${profile}`);
+
+            // Visual feedback splash
+            el.animate([
+                { transform: `scale(1.15)` },
+                { transform: `scale(1)` }
+            ], { duration: 300, easing: 'ease-out' });
+        }
+
+        function drawSuperBorder(cq, cr, size) {
+            const svg = document.getElementById('svg-layer');
+            const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+
+            const d = size - 1; // Distance from center to corner hexes
+
+            // Corner offsets for any Radius cluster
+            const corners = [
+                { q: -d, r: d }, { q: 0, r: d }, { q: d, r: 0 },
+                { q: d, r: -d }, { q: 0, r: -d }, { q: -d, r: 0 }
+            ];
+
+            const points = corners.map(offset => {
+                const p = hexToPixel(cq + offset.q, cr + offset.r);
+                return `${Math.round(p.x)},${Math.round(p.y)}`;
+            }).join(' ');
+
+            poly.setAttribute("points", points);
+            poly.setAttribute("fill", "none");
+            poly.setAttribute("stroke", "white");
+            poly.setAttribute("stroke-width", "2");
+            poly.setAttribute("stroke-linejoin", "round");
+            poly.style.filter = "drop-shadow(0 0 5px white)";
+            poly.style.opacity = "0.7";
+
+            svg.appendChild(poly);
+        }
+
+        function handleClick(q, r) {
+            const maxDist = brushSize - 1;
+
+            for (let dq = -maxDist; dq <= maxDist; dq++) {
+                for (let dr = Math.max(-maxDist, -dq - maxDist); dr <= Math.min(maxDist, -dq + maxDist); dr++) {
+                    paintHex(q + dq, r + dr, activeProfile);
+                }
+            }
+
+            if (brushSize >= 2) {
+                drawSuperBorder(q, r, brushSize);
+            }
+        }
+
+        // Initialize Grid
+        const fragment = document.createDocumentFragment();
+        for (let q = -GRID_LIMIT; q <= GRID_LIMIT; q++) {
+            let r1 = Math.max(-GRID_LIMIT, -q - GRID_LIMIT);
+            let r2 = Math.min(GRID_LIMIT, -q + GRID_LIMIT);
+            for (let r = r1; r <= r2; r++) {
+                const el = document.createElement('div');
+                el.className = 'hex';
+                const pos = hexToPixel(q, r);
+                el.style.transform = `translate3d(${Math.round(pos.x)}px, ${Math.round(pos.y)}px, 0)`;
+                el.innerHTML = `<span>${q},${r}</span>`;
+
+                el.onclick = () => handleClick(q, r);
+
+                hexLookup.set(`${q},${r}`, el);
+                fragment.appendChild(el);
+            }
+        }
+        container.appendChild(fragment);
+
+        // UI Listeners
+        radiusInput.oninput = (e) => {
+            brushSize = parseInt(e.target.value);
+            radiusDisplay.innerText = brushSize;
+        };
+
+        palette.onclick = (e) => {
+            const swatch = e.target.closest('.swatch');
+            if (!swatch) return;
+
+            document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+            swatch.classList.add('active');
+            activeProfile = parseInt(swatch.dataset.idx);
+        };
+
+        clearBtn.onclick = () => {
+            hexLookup.forEach(el => {
+                for (let i = 0; i < 6; i++) el.classList.remove(`p-${i}`);
+            });
+            document.getElementById('svg-layer').innerHTML = '';
+        };
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,279 @@
+{
+  "ski_areas": [
+    {
+      "name": "Kappl",
+      "gps": {
+        "lat": 47.06689,
+        "lon": 10.35909
+      },
+      "epsg_31254": {
+        "x": 1979.4,
+        "y": 214214.5
+      },
+      "sector": {
+        "q": 2,
+        "r": 261
+      },
+      "hex_axial_approx": {
+        "q": 309,
+        "r": 33471
+      }
+    },
+    {
+      "name": "St. Anton am Arlberg",
+      "gps": {
+        "lat": 47.1275,
+        "lon": 10.2640
+      },
+      "epsg_31254": {
+        "x": -3800,
+        "y": 221100
+      },
+      "sector": {
+        "q": -5,
+        "r": 270
+      },
+      "hex_axial_approx": {
+        "q": -594,
+        "r": 34547
+      }
+    },
+    {
+      "name": "Stubaier Gletscher",
+      "gps": {
+        "lat": 46.9978,
+        "lon": 11.1167
+      },
+      "epsg_31254": {
+        "x": 60250,
+        "y": 206600
+      },
+      "sector": {
+        "q": 73,
+        "r": 252
+      },
+      "hex_axial_approx": {
+        "q": 9414,
+        "r": 32281
+      }
+    },
+    {
+      "name": "Schlick 2000",
+      "gps": {
+        "lat": 47.1089,
+        "lon": 11.3181
+      },
+      "epsg_31254": {
+        "x": 75800,
+        "y": 218500
+      },
+      "sector": {
+        "q": 92,
+        "r": 266
+      },
+      "hex_axial_approx": {
+        "q": 11844,
+        "r": 34141
+      }
+    },
+    {
+      "name": "Axamer Lizum",
+      "gps": {
+        "lat": 47.1928,
+        "lon": 11.2928
+      },
+      "epsg_31254": {
+        "x": 73900,
+        "y": 227800
+      },
+      "sector": {
+        "q": 90,
+        "r": 278
+      },
+      "hex_axial_approx": {
+        "q": 11547,
+        "r": 35594
+      }
+    },
+    {
+      "name": "Patscherkofel",
+      "gps": {
+        "lat": 47.2086,
+        "lon": 11.4594
+      },
+      "epsg_31254": {
+        "x": 86800,
+        "y": 229500
+      },
+      "sector": {
+        "q": 106,
+        "r": 280
+      },
+      "hex_axial_approx": {
+        "q": 13562,
+        "r": 35859
+      }
+    },
+    {
+      "name": "Nordkette (Innsbruck)",
+      "gps": {
+        "lat": 47.3050,
+        "lon": 11.3833
+      },
+      "epsg_31254": {
+        "x": 80700,
+        "y": 240200
+      },
+      "sector": {
+        "q": 98,
+        "r": 293
+      },
+      "hex_axial_approx": {
+        "q": 12609,
+        "r": 37531
+      }
+    },
+    {
+      "name": "Glungezer",
+      "gps": {
+        "lat": 47.2892,
+        "lon": 11.5489
+      },
+      "epsg_31254": {
+        "x": 93700,
+        "y": 238400
+      },
+      "sector": {
+        "q": 114,
+        "r": 291
+      },
+      "hex_axial_approx": {
+        "q": 14641,
+        "r": 37250
+      }
+    },
+    {
+      "name": "Seefeld",
+      "gps": {
+        "lat": 47.3306,
+        "lon": 11.1878
+      },
+      "epsg_31254": {
+        "x": 65800,
+        "y": 243100
+      },
+      "sector": {
+        "q": 80,
+        "r": 296
+      },
+      "hex_axial_approx": {
+        "q": 10281,
+        "r": 37984
+      }
+    },
+    {
+      "name": "Ischgl",
+      "gps": {
+        "lat": 46.9883,
+        "lon": 10.2931
+      },
+      "epsg_31254": {
+        "x": -1800,
+        "y": 205500
+      },
+      "sector": {
+        "q": -3,
+        "r": 251
+      },
+      "hex_axial_approx": {
+        "q": -281,
+        "r": 32109
+      }
+    },
+    {
+      "name": "Serfaus-Fiss-Ladis",
+      "gps": {
+        "lat": 47.0378,
+        "lon": 10.6058
+      },
+      "epsg_31254": {
+        "x": 21000,
+        "y": 211200
+      },
+      "sector": {
+        "q": 25,
+        "r": 257
+      },
+      "hex_axial_approx": {
+        "q": 3281,
+        "r": 33000
+      }
+    },
+    {
+      "name": "Muttereralm",
+      "gps": {
+        "lat": 47.2339,
+        "lon": 11.3803
+      },
+      "epsg_31254": {
+        "x": 80500,
+        "y": 232300
+      },
+      "sector": {
+        "q": 98,
+        "r": 283
+      },
+      "hex_axial_approx": {
+        "q": 12578,
+        "r": 36297
+      }
+    },
+    {
+      "name": "Bergeralm - Steinach am Brenner",
+      "gps": {
+        "lat": 47.0883,
+        "lon": 11.4742
+      },
+      "epsg_31254": {
+        "x": 87900,
+        "y": 217800
+      },
+      "sector": {
+        "q": 107,
+        "r": 265
+      },
+      "hex_axial_approx": {
+        "q": 13734,
+        "r": 34031
+      }
+    },
+    {
+      "name": "Obergurgl-Hochgurgl",
+      "gps": {
+        "lat": 46.8692,
+        "lon": 11.0283
+      },
+      "epsg_31254": {
+        "x": 53400,
+        "y": 192300
+      },
+      "sector": {
+        "q": 65,
+        "r": 234
+      },
+      "hex_axial_approx": {
+        "q": 8344,
+        "r": 30047
+      }
+    }
+  ],
+  "coordinate_system_info": {
+    "projection": "EPSG:31254 (MGI / Austria GK West)",
+    "unit_hex_width_meters": 6.4,
+    "sector_width_meters": 819.2,
+    "meters_per_pixel": 0.2,
+    "unit_hex_px": 32.0,
+    "hex_orientation": "flat_top",
+    "note": "Hex coordinates are approximate calculations based on the coordinate conversion system. Sector coordinates (q, r) represent rectangular bins. Hex axial coordinates represent the hexagonal grid position."
+  }
+}

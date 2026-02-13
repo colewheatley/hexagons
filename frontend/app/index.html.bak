@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PowFinder | Bestagon Viewer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <div id="loader">
+        <!-- Hexagon background pattern -->
+        <div class="hex-pattern"></div>
+
+        <!-- Skier animation -->
+        <div class="skier-container">
+            <svg width="150" height="200" viewBox="0 0 1008 1356">
+                <defs>
+                    <linearGradient id="skierGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" style="stop-color:#ff6b9d;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#74b9ff;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+                <path
+                    d="M 927,116 L 925,116 L 920,113 L 918,113 L 915,111 L 912,111 L 906,108 L 902,108 L 898,106 L 890,105 L 889,104 L 885,103 L 884,104 L 880,105 L 876,109 L 876,112 L 874,114 L 874,117 L 873,119 L 869,123 L 867,123 L 866,122 L 860,122 L 859,121 L 851,121 L 850,120 L 846,120 L 845,119 L 838,119 L 837,118 L 831,118 L 830,117 L 824,117 L 823,116 L 815,116 L 814,115 L 810,115 L 809,114 L 793,113 L 789,111 L 780,111 L 779,110 L 772,110 L 771,109 L 768,109 L 767,108 L 758,108 L 757,107 L 745,106 L 744,105 L 736,105 L 735,104 L 731,104 L 730,103 L 722,103 L 721,102 L 716,102 L 715,101 L 710,101 L 709,100 L 699,100 L 698,99 L 695,99 L 694,98 L 688,98 L 687,97 L 678,97 L 677,96 L 672,96 L 671,95 L 666,95 L 665,94 L 657,94 L 656,93 L 651,93 L 650,92 L 641,92 L 640,91 L 637,91 L 636,90 L 620,89 L 619,88 L 616,88 L 615,87 L 598,86 L 597,85 L 594,85 L 593,84 L 585,84 L 584,83 L 578,83 L 577,82 L 571,82 L 570,81 L 563,81 L 562,80 L 557,80 L 556,79 L 542,78 L 541,77 L 537,77 L 536,76 L 526,76 L 525,75 L 520,75 L 519,74 L 515,74 L 514,73 L 504,73 L 503,72 L 499,72 L 498,71 L 493,71 L 492,70 L 484,70 L 483,69 L 481,69 L 478,66 L 478,63 L 473,53 L 469,50 L 466,50 L 462,52 L 460,54 L 456,62 L 453,65 L 435,65 L 433,66 L 436,67 L 438,69 L 441,69 L 445,72 L 447,72 L 449,74 L 450,74 L 452,76 L 453,82 L 456,88 L 459,91 L 463,93 L 468,91 L 475,84 L 476,81 L 480,78 L 481,79 L 485,79 L 486,80 L 494,80 L 495,81 L 501,81 L 502,82 L 507,82 L 508,83 L 516,83 L 517,84 L 521,84 L 522,85 L 529,85 L 530,86 L 536,86 L 537,87 L 542,87 L 543,88 L 552,88 L 553,89 L 557,89 L 558,90 L 572,91 L 573,92 L 577,92 L 578,93 L 595,94 L 599,96 L 609,96 L 610,97 L 620,98 L 621,99 L 630,99 L 631,100 L 634,100 L 635,101 L 651,102 L 655,104 L 664,104 L 665,105 L 671,105 L 672,106 L 678,106 L 679,107 L 686,107 L 687,108 L 699,109 L 700,110 L 707,110 L 708,111 L 713,111 L 714,112 L 728,113 L 729,114 L 734,114 L 735,115 L 742,115 L 743,116 L 748,116 L 749,117 L 763,118 L 764,119 L 769,119 L 770,120 L 778,120 L 779,121 L 784,121 L 785,122 L 790,122 L 791,123 L 801,123 L 805,125 L 821,126 L 822,127 L 825,127 L 826,128 L 842,129 L 843,130 L 846,130 L 847,131 L 853,131 L 855,133 L 851,137 L 850,137 L 847,140 L 845,140 L 844,141 L 842,141 L 838,143 L 830,143 L 829,144 L 826,144 L 825,145 L 818,146 L 816,148 L 814,148 L 812,150 L 806,153 L 795,162 L 794,162 L 786,170 L 785,170 L 784,172 L 783,172 L 774,180 L 771,181 L 769,183 L 767,183 L 762,186 L 760,186 L 758,188 L 754,189 L 752,191 L 750,191 L 739,197 L 737,197 L 735,199 L 729,202 L 727,202 L 724,204 L 716,205 L 715,206 L 710,206 L 709,207 L 698,207 L 686,213 L 676,213 L 675,214 L 671,214 L 670,215 L 664,215 L 660,217 L 657,217 L 656,216 L 656,209 L 657,208 L 657,197 L 658,196 L 658,177 L 657,176 L 657,172 L 656,171 L 655,165 L 653,162 L 652,157 L 650,155 L 649,152 L 647,150 L 645,146 L 642,143 L 642,142 L 635,135 L 634,135 L 630,132 L 628,132 L 624,130 L 620,130 L 619,129 L 615,129 L 614,128 L 609,128 L 608,127 L 593,127 L 592,126 L 587,126 L 586,127 L 572,127 L 571,128 L 568,128 L 567,129 L 562,129 L 561,130 L 557,130 L 554,132 L 551,132 L 547,135 L 541,138 L 541,139 L 539,140 L 535,144 L 534,146 L 533,146 L 533,147 L 529,152 L 528,155 L 526,157 L 522,165 L 522,167 L 520,170 L 519,175 L 517,178 L 516,185 L 514,189 L 514,194 L 513,195 L 513,198 L 512,199 L 512,204 L 511,205 L 511,207 L 506,211 L 506,215 L 505,216 L 506,230 L 503,233 L 497,234 L 495,236 L 491,237 L 488,240 L 487,240 L 481,245 L 480,245 L 445,276 L 441,277 L 438,279 L 436,279 L 435,280 L 431,280 L 427,282 L 418,283 L 414,285 L 408,285 L 407,286 L 405,286 L 401,288 L 396,288 L 394,290 L 391,290 L 385,293 L 382,293 L 377,296 L 375,296 L 373,298 L 366,301 L 363,304 L 362,304 L 359,307 L 358,307 L 335,331 L 334,331 L 327,336 L 325,336 L 320,339 L 317,339 L 314,341 L 309,342 L 306,344 L 302,345 L 300,347 L 298,347 L 292,352 L 291,352 L 291,353 L 283,360 L 279,362 L 254,362 L 253,363 L 241,363 L 237,365 L 227,366 L 223,368 L 215,369 L 214,370 L 208,371 L 207,372 L 205,372 L 201,374 L 198,374 L 195,376 L 192,376 L 191,377 L 188,377 L 185,379 L 181,379 L 179,380 L 178,379 L 178,375 L 180,372 L 180,369 L 183,364 L 183,362 L 185,359 L 185,357 L 188,351 L 188,348 L 190,344 L 190,339 L 187,337 L 185,337 L 182,339 L 180,339 L 176,343 L 175,346 L 173,348 L 168,358 L 168,360 L 166,362 L 164,362 L 159,358 L 152,358 L 149,364 L 150,376 L 152,380 L 150,383 L 143,383 L 140,380 L 140,371 L 139,370 L 139,361 L 138,360 L 138,349 L 137,348 L 138,347 L 138,338 L 139,337 L 139,334 L 140,333 L 140,328 L 142,324 L 142,319 L 143,318 L 143,311 L 144,310 L 144,305 L 143,304 L 143,300 L 142,298 L 140,296 L 137,296 L 133,299 L 133,300 L 125,309 L 124,312 L 122,314 L 122,316 L 119,322 L 119,326 L 117,329 L 117,336 L 116,337 L 116,341 L 115,342 L 115,350 L 114,351 L 114,369 L 113,370 L 113,385 L 109,388 L 105,388 L 104,389 L 102,389 L 101,390 L 97,390 L 96,391 L 94,391 L 90,393 L 86,393 L 83,395 L 79,395 L 76,397 L 72,398 L 68,401 L 68,404 L 70,406 L 78,410 L 80,410 L 83,412 L 77,418 L 76,422 L 74,425 L 74,430 L 76,434 L 77,440 L 80,446 L 83,449 L 83,450 L 86,451 L 88,453 L 91,453 L 92,454 L 95,454 L 96,455 L 112,455 L 113,454 L 118,454 L 119,453 L 124,453 L 128,451 L 132,451 L 135,456 L 135,459 L 136,460 L 136,463 L 138,467 L 138,471 L 139,472 L 139,474 L 141,478 L 141,482 L 143,486 L 144,493 L 146,496 L 147,504 L 149,507 L 149,511 L 151,515 L 152,523 L 154,526 L 155,534 L 157,537 L 157,541 L 158,542 L 158,544 L 160,548 L 160,552 L 162,555 L 163,563 L 164,564 L 165,570 L 167,574 L 168,582 L 170,585 L 170,589 L 171,590 L 171,592 L 173,596 L 173,600 L 174,601 L 174,603 L 176,607 L 176,611 L 177,612 L 178,618 L 179,619 L 179,622 L 181,626 L 181,630 L 184,636 L 184,641 L 185,642 L 185,644 L 187,648 L 187,651 L 189,655 L 189,659 L 190,660 L 190,662 L 192,666 L 192,670 L 194,674 L 195,681 L 197,684 L 197,688 L 198,689 L 198,692 L 199,693 L 200,699 L 202,703 L 203,711 L 205,714 L 206,722 L 207,723 L 208,729 L 209,730 L 210,736 L 211,737 L 211,741 L 213,744 L 214,751 L 216,755 L 216,759 L 217,760 L 217,762 L 219,766 L 219,770 L 220,771 L 221,777 L 222,778 L 222,780 L 224,784 L 224,788 L 225,789 L 225,791 L 227,795 L 227,799 L 228,800 L 229,806 L 230,807 L 230,813 L 231,814 L 231,819 L 232,820 L 232,832 L 233,833 L 233,839 L 234,840 L 234,848 L 235,849 L 235,859 L 236,860 L 236,868 L 237,869 L 237,876 L 238,877 L 238,887 L 239,888 L 239,891 L 240,892 L 240,904 L 241,905 L 241,911 L 242,912 L 242,920 L 243,921 L 243,931 L 244,932 L 244,937 L 245,938 L 246,958 L 247,959 L 247,963 L 248,964 L 248,976 L 249,977 L 249,983 L 250,984 L 250,990 L 251,991 L 251,1003 L 252,1004 L 252,1009 L 253,1010 L 253,1018 L 254,1019 L 254,1030 L 255,1031 L 255,1035 L 256,1036 L 256,1047 L 257,1048 L 257,1056 L 258,1057 L 258,1062 L 259,1063 L 259,1072 L 260,1073 L 260,1081 L 261,1082 L 261,1089 L 262,1090 L 262,1099 L 263,1100 L 263,1105 L 264,1106 L 264,1116 L 265,1117 L 265,1125 L 266,1126 L 266,1131 L 267,1132 L 267,1142 L 268,1143 L 268,1148 L 269,1149 L 269,1156 L 270,1157 L 270,1168 L 272,1172 L 273,1192 L 274,1193 L 274,1198 L 275,1199 L 275,1208 L 276,1209 L 276,1215 L 277,1216 L 277,1220 L 278,1221 L 278,1229 L 280,1232 L 281,1239 L 286,1249 L 286,1251 L 293,1261 L 294,1264 L 302,1273 L 302,1274 L 318,1290 L 322,1291 L 324,1293 L 333,1293 L 333,1290 L 328,1281 L 317,1269 L 314,1263 L 311,1260 L 306,1250 L 304,1248 L 304,1246 L 301,1241 L 301,1239 L 298,1234 L 298,1232 L 296,1229 L 295,1224 L 293,1221 L 293,1217 L 292,1216 L 292,1213 L 290,1209 L 290,1205 L 288,1201 L 287,1181 L 286,1180 L 286,1173 L 285,1172 L 285,1160 L 284,1159 L 284,1153 L 283,1152 L 283,1144 L 282,1143 L 282,1133 L 281,1132 L 281,1124 L 280,1123 L 280,1115 L 279,1114 L 279,1104 L 278,1103 L 278,1096 L 277,1095 L 277,1083 L 276,1082 L 275,1066 L 274,1065 L 274,1053 L 273,1052 L 273,1047 L 272,1046 L 272,1038 L 271,1037 L 271,1024 L 270,1023 L 270,1018 L 269,1017 L 269,1006 L 268,1005 L 267,989 L 266,988 L 266,976 L 265,975 L 264,961 L 263,960 L 263,948 L 262,947 L 262,943 L 261,942 L 261,937 L 263,935 L 264,936 L 264,940 L 266,943 L 266,946 L 267,947 L 267,952 L 268,953 L 268,956 L 269,957 L 269,960 L 270,961 L 270,967 L 272,971 L 273,982 L 275,985 L 275,991 L 276,992 L 276,996 L 278,1000 L 278,1006 L 280,1010 L 280,1015 L 281,1016 L 281,1020 L 283,1024 L 283,1030 L 284,1031 L 284,1035 L 286,1039 L 286,1045 L 288,1049 L 288,1054 L 289,1055 L 289,1059 L 290,1060 L 290,1063 L 291,1064 L 292,1073 L 293,1074 L 293,1077 L 294,1078 L 294,1083 L 296,1087 L 297,1098 L 299,1102 L 300,1112 L 302,1116 L 302,1122 L 304,1126 L 305,1137 L 307,1140 L 307,1145 L 308,1146 L 308,1150 L 309,1151 L 309,1154 L 310,1155 L 310,1161 L 312,1165 L 312,1169 L 313,1170 L 313,1174 L 314,1175 L 314,1178 L 315,1179 L 316,1188 L 318,1192 L 318,1198 L 319,1199 L 319,1202 L 320,1203 L 320,1206 L 321,1207 L 322,1216 L 323,1217 L 323,1220 L 324,1221 L 324,1226 L 326,1230 L 326,1235 L 327,1236 L 327,1238 L 329,1242 L 329,1245 L 331,1248 L 331,1250 L 334,1256 L 334,1258 L 336,1260 L 337,1264 L 339,1266 L 343,1274 L 349,1281 L 349,1282 L 353,1286 L 353,1287 L 362,1296 L 363,1296 L 366,1299 L 367,1299 L 372,1304 L 374,1304 L 377,1307 L 385,1308 L 386,1309 L 387,1308 L 389,1308 L 393,1306 L 394,1304 L 394,1298 L 392,1294 L 392,1291 L 390,1289 L 386,1280 L 384,1278 L 382,1274 L 379,1271 L 378,1268 L 374,1263 L 373,1260 L 371,1258 L 365,1246 L 365,1244 L 363,1242 L 363,1240 L 362,1239 L 362,1237 L 360,1235 L 360,1232 L 358,1229 L 357,1223 L 356,1222 L 355,1216 L 354,1215 L 354,1211 L 353,1210 L 353,1207 L 352,1206 L 351,1197 L 349,1193 L 349,1187 L 347,1183 L 346,1174 L 345,1173 L 345,1170 L 344,1169 L 344,1163 L 343,1162 L 342,1156 L 341,1155 L 341,1149 L 339,1145 L 338,1135 L 336,1131 L 336,1126 L 335,1125 L 335,1122 L 334,1121 L 334,1118 L 333,1117 L 333,1112 L 332,1111 L 332,1108 L 331,1107 L 330,1098 L 328,1094 L 327,1083 L 325,1079 L 325,1074 L 323,1070 L 323,1066 L 322,1065 L 322,1060 L 321,1059 L 321,1056 L 320,1055 L 319,1046 L 317,1042 L 317,1036 L 315,1032 L 314,1022 L 312,1018 L 312,1013 L 311,1012 L 311,1009 L 310,1008 L 309,998 L 308,997 L 308,994 L 307,993 L 306,984 L 304,980 L 303,970 L 301,966 L 301,960 L 300,959 L 300,957 L 299,956 L 299,952 L 298,951 L 298,947 L 300,945 L 302,947 L 308,947 L 311,942 L 311,932 L 309,930 L 309,928 L 301,913 L 301,911 L 298,906 L 298,904 L 295,899 L 295,897 L 293,894 L 292,889 L 290,886 L 290,883 L 288,879 L 288,870 L 291,868 L 293,868 L 301,872 L 305,872 L 306,873 L 310,873 L 316,870 L 319,867 L 320,864 L 322,862 L 322,860 L 323,859 L 323,857 L 325,853 L 325,836 L 328,830 L 335,823 L 336,823 L 340,820 L 347,820 L 348,821 L 351,821 L 353,823 L 358,824 L 361,826 L 364,826 L 367,828 L 370,828 L 371,829 L 377,829 L 378,830 L 383,830 L 384,831 L 398,831 L 399,832 L 417,832 L 418,833 L 425,833 L 426,834 L 437,834 L 438,835 L 442,835 L 446,837 L 451,837 L 452,838 L 458,839 L 459,840 L 465,840 L 469,842 L 475,842 L 476,843 L 481,843 L 482,844 L 487,844 L 488,845 L 497,845 L 498,846 L 503,846 L 504,847 L 514,847 L 515,848 L 539,848 L 540,847 L 544,847 L 548,845 L 552,845 L 557,842 L 559,842 L 566,837 L 568,837 L 570,835 L 578,831 L 580,829 L 586,826 L 592,821 L 596,819 L 607,809 L 607,808 L 612,802 L 612,800 L 615,794 L 615,788 L 616,787 L 616,781 L 617,780 L 617,778 L 618,776 L 622,772 L 622,771 L 624,769 L 625,769 L 626,766 L 629,762 L 629,760 L 630,759 L 630,749 L 631,748 L 631,742 L 630,741 L 630,725 L 629,724 L 629,709 L 628,708 L 628,696 L 627,695 L 627,691 L 626,690 L 626,684 L 625,683 L 625,680 L 623,676 L 623,673 L 621,670 L 620,664 L 618,661 L 618,659 L 617,658 L 615,650 L 613,647 L 612,642 L 609,636 L 609,633 L 608,632 L 608,627 L 609,626 L 609,619 L 610,618 L 610,614 L 612,611 L 612,607 L 614,603 L 615,595 L 617,592 L 617,588 L 618,587 L 618,582 L 619,581 L 619,579 L 625,568 L 634,558 L 634,557 L 638,552 L 639,549 L 641,547 L 645,539 L 645,537 L 647,535 L 647,532 L 650,527 L 650,524 L 652,521 L 652,518 L 655,512 L 655,507 L 656,506 L 656,504 L 658,500 L 658,495 L 659,494 L 659,491 L 660,490 L 660,487 L 661,486 L 661,480 L 663,476 L 671,466 L 671,464 L 674,460 L 674,458 L 677,453 L 677,450 L 679,448 L 680,442 L 682,439 L 682,433 L 683,432 L 683,430 L 684,429 L 684,425 L 685,424 L 685,417 L 687,413 L 687,387 L 686,386 L 686,382 L 685,381 L 685,374 L 684,373 L 684,367 L 683,366 L 683,361 L 682,360 L 682,344 L 683,343 L 683,340 L 685,336 L 695,327 L 697,327 L 699,325 L 705,322 L 707,322 L 712,319 L 716,319 L 721,316 L 725,316 L 728,314 L 734,313 L 744,308 L 746,308 L 758,302 L 760,300 L 762,300 L 768,295 L 769,295 L 771,293 L 778,289 L 783,284 L 784,284 L 787,281 L 788,281 L 799,270 L 800,270 L 800,269 L 827,241 L 827,240 L 838,228 L 838,227 L 861,204 L 862,204 L 865,201 L 866,201 L 869,198 L 870,198 L 878,190 L 879,190 L 885,184 L 886,184 L 891,179 L 892,179 L 893,177 L 894,177 L 902,170 L 903,170 L 908,166 L 910,166 L 914,164 L 920,164 L 921,163 L 923,163 L 925,161 L 928,160 L 928,159 L 930,157 L 931,157 L 936,153 L 941,152 L 943,150 L 944,150 L 948,145 L 948,139 L 947,138 L 947,136 L 945,132 L 942,129 L 942,128 L 939,125 L 939,124 L 938,124 L 935,121 L 929,118 Z M 185,486 L 187,487 L 192,492 L 194,496 L 201,503 L 203,507 L 204,507 L 205,509 L 210,514 L 210,515 L 214,519 L 214,520 L 218,524 L 218,525 L 222,529 L 222,530 L 232,541 L 232,542 L 235,545 L 235,546 L 245,557 L 245,558 L 248,561 L 248,562 L 253,567 L 253,568 L 257,572 L 257,573 L 267,584 L 267,585 L 270,588 L 270,589 L 280,600 L 280,601 L 283,604 L 283,605 L 288,610 L 288,611 L 297,621 L 297,622 L 299,623 L 299,624 L 302,627 L 302,628 L 307,633 L 307,634 L 310,637 L 310,638 L 315,643 L 315,644 L 319,648 L 319,649 L 329,660 L 329,661 L 332,664 L 332,665 L 334,666 L 334,667 L 342,676 L 342,677 L 345,680 L 345,681 L 356,693 L 358,697 L 359,697 L 361,699 L 361,700 L 363,702 L 362,703 L 358,703 L 356,701 L 353,700 L 351,698 L 349,698 L 347,696 L 344,696 L 343,695 L 341,695 L 340,696 L 334,696 L 333,697 L 325,699 L 322,701 L 320,701 L 315,704 L 313,704 L 311,706 L 308,707 L 308,708 L 306,710 L 305,710 L 305,712 L 302,715 L 297,715 L 296,716 L 288,716 L 287,715 L 284,715 L 282,713 L 282,709 L 283,707 L 288,702 L 288,701 L 293,697 L 293,696 L 296,693 L 296,692 L 300,687 L 302,683 L 302,678 L 301,677 L 289,677 L 286,674 L 285,671 L 283,669 L 280,669 L 278,670 L 278,671 L 275,674 L 271,681 L 267,685 L 263,687 L 261,687 L 257,684 L 255,680 L 255,678 L 254,677 L 254,675 L 252,671 L 252,668 L 251,667 L 251,665 L 249,661 L 246,663 L 243,663 L 242,664 L 230,664 L 226,661 L 225,661 L 221,657 L 220,653 L 218,650 L 218,645 L 217,644 L 217,641 L 216,640 L 216,637 L 215,636 L 215,630 L 213,626 L 212,616 L 210,612 L 209,602 L 207,598 L 207,592 L 205,588 L 204,579 L 202,575 L 201,564 L 199,561 L 199,555 L 197,551 L 197,547 L 196,546 L 195,537 L 194,536 L 194,533 L 193,532 L 193,527 L 191,523 L 191,518 L 190,517 L 190,514 L 189,513 L 189,510 L 188,509 L 188,503 L 186,499 L 185,489 L 184,488 Z M 175,443 L 177,441 L 196,441 L 197,440 L 210,440 L 211,439 L 217,439 L 218,438 L 223,438 L 224,437 L 250,437 L 251,436 L 253,436 L 254,437 L 258,437 L 259,436 L 261,436 L 262,437 L 268,437 L 269,436 L 276,437 L 277,436 L 291,436 L 292,435 L 295,435 L 296,434 L 300,433 L 301,432 L 301,430 L 305,425 L 313,426 L 318,429 L 321,429 L 322,430 L 327,430 L 330,428 L 331,424 L 333,422 L 333,420 L 337,417 L 344,417 L 345,418 L 348,418 L 353,421 L 356,421 L 359,423 L 362,423 L 363,424 L 366,424 L 367,425 L 374,425 L 375,426 L 376,425 L 390,424 L 391,423 L 394,423 L 397,421 L 400,421 L 410,416 L 413,413 L 414,413 L 417,410 L 418,410 L 421,407 L 422,407 L 422,406 L 424,405 L 432,397 L 436,396 L 437,395 L 442,398 L 442,400 L 444,402 L 444,405 L 445,406 L 445,408 L 447,412 L 447,418 L 448,419 L 448,422 L 449,423 L 449,444 L 447,448 L 447,451 L 440,459 L 437,460 L 431,466 L 431,468 L 430,469 L 431,485 L 429,487 L 428,491 L 425,496 L 425,498 L 423,501 L 422,506 L 420,509 L 420,512 L 417,517 L 417,520 L 415,522 L 415,525 L 412,530 L 412,533 L 409,538 L 409,540 L 407,542 L 407,544 L 402,549 L 402,550 L 400,552 L 399,552 L 399,553 L 397,554 L 397,555 L 395,557 L 394,557 L 394,558 L 391,561 L 390,563 L 390,570 L 391,572 L 396,577 L 396,578 L 401,583 L 401,584 L 406,589 L 406,590 L 410,594 L 410,595 L 414,599 L 414,600 L 418,604 L 418,605 L 428,616 L 430,620 L 430,622 L 429,623 L 429,627 L 430,628 L 431,633 L 436,643 L 436,645 L 439,650 L 439,652 L 441,655 L 441,657 L 445,664 L 445,666 L 447,669 L 447,671 L 449,673 L 449,675 L 455,686 L 455,688 L 458,692 L 458,694 L 460,696 L 461,699 L 466,706 L 468,711 L 472,715 L 472,716 L 470,718 L 467,718 L 466,717 L 460,717 L 456,715 L 450,715 L 449,714 L 444,714 L 443,713 L 439,713 L 438,712 L 428,712 L 427,711 L 419,711 L 418,710 L 404,710 L 403,709 L 383,709 L 379,707 L 375,707 L 368,700 L 366,696 L 357,686 L 357,685 L 349,676 L 349,675 L 346,672 L 346,671 L 341,666 L 341,665 L 338,662 L 338,661 L 336,660 L 336,659 L 333,656 L 333,655 L 330,652 L 330,651 L 325,646 L 325,645 L 317,636 L 317,635 L 314,632 L 314,631 L 309,626 L 309,625 L 306,622 L 306,621 L 304,620 L 304,619 L 301,616 L 301,615 L 298,612 L 298,611 L 293,606 L 293,605 L 290,602 L 290,601 L 288,600 L 288,599 L 285,596 L 285,595 L 282,592 L 282,591 L 277,586 L 277,585 L 274,582 L 274,581 L 269,576 L 269,575 L 266,572 L 266,571 L 261,566 L 261,565 L 258,562 L 258,561 L 253,556 L 253,555 L 250,552 L 250,551 L 245,546 L 245,545 L 237,536 L 237,535 L 234,532 L 234,531 L 228,525 L 226,521 L 220,515 L 220,514 L 217,511 L 217,510 L 213,506 L 213,505 L 209,501 L 209,500 L 205,496 L 205,495 L 201,491 L 201,490 L 196,485 L 194,481 L 190,477 L 190,476 L 188,475 L 188,474 L 185,471 L 185,470 L 181,466 L 181,465 L 178,461 L 177,452 L 175,448 Z"
+                    fill="url(#skierGradient)" fill-rule="evenodd" stroke="none" />
+            </svg>
+            <!-- Speed lines (snow spray) -->
+            <div class="speed-lines">
+                <div class="line"></div>
+                <div class="line"></div>
+                <div class="line"></div>
+            </div>
+        </div>
+
+        <!-- Loading text -->
+        <div class="loading-text">
+            <h1 class="main-message">Good code loads fast.</h1>
+            <h2 class="fetching-message">Fetching high-res bestagons...</h2>
+        </div>
+    </div>
+
+    <div id="ui">
+        <div class="glass-panel" id="main-panel">
+            <div class="panel-header">
+                <div class="header-content">
+                    <h1>POWFINDER 3D</h1>
+                    <div class="subtitle">Binary Hex Piston Engine</div>
+                </div>
+                <button id="minimize-btn" class="minimize-btn" title="Minimize Panel">−</button>
+            </div>
+
+            <div class="panel-body">
+                <div class="stats">
+                    <div class="hud-item">
+                        <span>LOCATION</span>
+                        <span class="value" id="loc-val">SULZENAU, TIROL</span>
+                    </div>
+                    <!-- === DEBUG: Render Analysis === -->
+                    <div class="hud-item">
+                        <span>FPS / ZOOM</span>
+                        <span class="value" id="fps-counter">--</span>
+                    </div>
+                    <div class="hud-item">
+                        <span>HEXAGONS</span>
+                        <span class="value" id="hex-count">-- VISIBLE</span>
+                    </div>
+                    <div class="hud-item">
+                        <span>TRIANGLES</span>
+                        <span class="value" id="tri-count">-- / -- (--)</span>
+                    </div>
+                    <div class="hud-item">
+                        <span>DRAW CALLS</span>
+                        <span class="value" id="draw-stats">-- | G:-- | T:--</span>
+                    </div>
+                    <div class="hud-item">
+                        <span>SECTOR</span>
+                        <span class="value" id="sector-val">--</span>
+                    </div>
+                    <div class="hud-item">
+                        <span>HEX</span>
+                        <span class="value" id="hex-val">--</span>
+                    </div>
+                    <div class="hud-item">
+                        <span>WORLD XY</span>
+                        <span class="value" id="world-val">--</span>
+                    </div>
+                    <div class="hud-item">
+                        <span>TILE HEIGHT</span>
+                        <span class="value" id="tile-height">--m</span>
+                    </div>
+                    <div class="hud-item">
+                        <span>CAMERA HEIGHT</span>
+                        <span class="value" id="camera-height">--m</span>
+                    </div>
+
+                    <div class="hud-item"
+                        style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 10px;">
+                        <span>LOD BENCHMARK (MS)</span>
+                    </div>
+
+                    <div class="hud-item"
+                        style="justify-content: space-between; font-family: 'Courier New', monospace; font-size: 10px;"
+                        title="O(N) Brute Force: Iterates through every single sector in the world for every frame. Slowest method, scales poorly with map size.">
+                        <span style="color: #aaa;">LINEAR SCAN</span>
+                        <span class="value" id="bench-loop" style="color: #ff6b9d;">--</span>
+                    </div>
+                    <div class="hud-item"
+                        style="justify-content: space-between; font-family: 'Courier New', monospace; font-size: 10px;"
+                        title="O(log N) Spatial Tree: Recursively subdivides space into quadrants. Efficiently discards large chunks of the world outside the view range.">
+                        <span style="color: #aaa;">QUAD TREE</span>
+                        <span class="value" id="bench-tree" style="color: #74b9ff;">--</span>
+                    </div>
+                    <div class="hud-item"
+                        style="justify-content: space-between; font-family: 'Courier New', monospace; font-size: 10px;"
+                        title="O(1) Spatial Hash: Maps coordinates directly to grid buckets. Near-instant constant time lookup, but uses more memory for the hash table.">
+                        <span style="color: #aaa;">GRID HASH</span>
+                        <span class="value" id="bench-hash" style="color: #2ecc71;">--</span>
+                    </div>
+
+                    <!-- === END DEBUG === -->
+                    <div class="hud-item">
+                        <span>PRECISION</span>
+                        <span class="value">FLOAT16 (CM)</span>
+                    </div>
+                    <div class="hud-item"
+                        style="margin-top: 15px; border-bottom: 1px solid #333; padding-bottom: 5px; color: #fff; font-weight: bold;">
+                        GEOMETRY (VERTEX)
+                    </div>
+                    <!-- Geometry Controls -->
+                    <div class="hud-item" style="flex-direction: column; align-items: stretch; margin-top: 10px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span>UNIT HEX (CLOSE)</span>
+                            <span class="value" id="geo-lod0-val">200m</span>
+                        </div>
+                        <input type="range" id="geo-lod0-slider" min="0" max="1000" step="10" value="200"
+                            style="width: 100%; pointer-events: auto;">
+                    </div>
+                    <div class="hud-item" style="flex-direction: column; align-items: stretch; margin-top: 5px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span>SMALL HEX</span>
+                            <span class="value" id="geo-lod1-val">500m</span>
+                        </div>
+                        <input type="range" id="geo-lod1-slider" min="0" max="2000" step="50" value="500"
+                            style="width: 100%; pointer-events: auto;">
+                    </div>
+                    <div class="hud-item" style="flex-direction: column; align-items: stretch; margin-top: 5px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span>MEDIUM HEX</span>
+                            <span class="value" id="geo-lod2-val">1000m</span>
+                        </div>
+                        <input type="range" id="geo-lod2-slider" min="0" max="5000" step="100" value="1000"
+                            style="width: 100%; pointer-events: auto;">
+                    </div>
+                    <div class="hud-item" style="flex-direction: column; align-items: stretch; margin-top: 5px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span>VIEW DIST (MAX)</span>
+                            <span class="value" id="geo-lod3-val">2000m</span>
+                        </div>
+                        <input type="range" id="geo-lod3-slider" min="0" max="10000" step="100" value="2000"
+                            style="width: 100%; pointer-events: auto;">
+                    </div>
+
+                    <div class="hud-item"
+                        style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; border-top: 1px solid #333; padding-top: 10px;">
+                        <span>SAFETY OVERLAY</span>
+                        <input type="checkbox" id="safety-toggle" checked style="pointer-events: auto;">
+                    </div>
+
+                    <div class="hud-item"
+                        style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
+                        <span>PAUSE LOD UPDATES</span>
+                        <input type="checkbox" id="lod-pause-toggle" style="pointer-events: auto;">
+                    </div>
+
+                    <div class="hud-item"
+                        style="margin-top: 15px; border-bottom: 1px solid #333; padding-bottom: 5px; color: #fff; font-weight: bold;">
+                        TEXTURE (VRAM)
+                    </div>
+                    <!-- Texture Controls -->
+                    <div class="hud-item" style="flex-direction: column; align-items: stretch; margin-top: 10px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom:5px;">
+                            <span>FULL RES (0.2m)</span>
+                            <span class="value" id="tex-lod0-val">500m</span>
+                        </div>
+                        <input type="range" id="tex-lod0-slider" min="0" max="2000" step="50" value="500"
+                            style="width: 100%; pointer-events: auto;">
+                    </div>
+                    <div class="hud-item" style="flex-direction: column; align-items: stretch; margin-top: 5px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom:5px;">
+                            <span>HIGH RES (~0.8m)</span>
+                            <span class="value" id="tex-lod1-val">∞</span>
+                        </div>
+                        <input type="range" id="tex-lod1-slider" min="0" max="5000" step="100" value="1500"
+                            style="width: 100%; pointer-events: auto;">
+                    </div>
+
+                    <div class="hud-item"
+                        style="margin-top: 15px; border-bottom: 1px solid #333; padding-bottom: 5px; color: #fff; font-weight: bold;">
+                        RENDER DISTANCE
+                    </div>
+                    <div class="hud-item" style="flex-direction: column; align-items: stretch; margin-top: 10px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                            <span>MAX RANGE</span>
+                            <span class="value" id="render-distance-val">20km</span>
+                        </div>
+                        <input type="range" id="render-distance-slider" min="1" max="50" step="1" value="20"
+                            style="width: 100%; pointer-events: auto;">
+                    </div>
+                </div>
+
+                <div class="hud-item frametime-item">
+                    <canvas id="frametime-graph" width="640" height="80"></canvas>
+                </div>
+            </div>
+
+            <div class="info-panel">
+                <div class="tech-header">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+                    </svg>
+                    Why Bestagons?
+                </div>
+                <div class="tech-description">
+                    Utilizing a single GPU Draw Call for the entire terrain.
+                    <span class="tech-spec">
+                        - 1DrawCall / 15k Hexes<br>
+                        - Zero DrawCall Overhead<br>
+                        - 14-Byte Manifold Stream<br>
+                        - Dynamic Piston Animation
+                    </span>
+                </div>
+            </div>
+
+            <div class="console-panel">
+                <div class="console-header">
+                    <span>STATUS LOG</span>
+                    <button id="copy-log-btn" class="console-btn">COPY</button>
+                </div>
+                <div id="console-output" class="console-box">
+                    <div class="log-line">Waiting for system...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <div class="legend glass-panel">
+        <div class="legend-item">
+            <div class="swatch" style="background:#555;"></div>
+            < 10° PLAIN</div>
+                <div class="legend-item">
+                    <div class="swatch" style="background:#2ecc71;"></div> 10-25° EASY
+                </div>
+                <div class="legend-item">
+                    <div class="swatch" style="background:#3498db;"></div> 25-30° MODERATE
+                </div>
+                <div class="legend-item">
+                    <div class="swatch" style="background:#e74c3c;"></div> > 30° DANGER
+                </div>
+        </div>
+
+        <div id="css-map-layer">
+            <div id="css-world"></div>
+        </div>
+        <div id="canvas-container"></div>
+
+        <script type="module" src="main.js"></script>
+</body>
+
+</html>
