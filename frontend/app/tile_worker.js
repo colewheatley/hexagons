@@ -46,7 +46,7 @@ self.onmessage = async function (e) {
             self.postMessage({ id, status: 'success', result }, [result.bitmap]);
         }
     } catch (err) {
-        console.error("Worker Error:", err);
+        // Error communicated to main thread via postMessage — no console spam
         self.postMessage({ id, status: 'error', error: err.message });
     }
 };

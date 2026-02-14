@@ -2,25 +2,18 @@ import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { HexSearch } from './search.js';
 
-// --- PERFORMANCE MONITORING (Watchdog) ---
-const PERF_CONFIG = {
-    ENABLED: true,
-    THRESHOLD_MS: 4.0, // Report anything over 4ms (1/4 of a frame)
-    VERBOSE: false     // Log every execution if true
-};
+// --- ENGINE STATE MACHINE & PERFORMANCE MONITORING ---
+const APP_VERSION = 'v0.8.0';
+const ENGINE_STATES = { MOVING_2D: 'MOVING_2D', MOVING_3D: 'MOVING_3D', SINTERING: 'SINTERING', STATIC: 'STATIC' };
+// Per-state frame budgets (ms). Violations logged only when exceeded.
+// MOVING targets 60fps. STATIC must never render at all (budget=0).
+const STATE_BUDGETS_MS = { MOVING_2D: 16, MOVING_3D: 16, SINTERING: 1200, STATIC: 0 };
+const PERF_VERBOSE_MAX = 5;    // First N violations: full-fat JSON with culprits
+const PERF_STATS_WINDOW = 200; // After verbose cap: accumulate, then flush stats every N violations
 
-function track(name, fn) {
-    if (!PERF_CONFIG.ENABLED) return fn();
-    const start = performance.now();
-    const result = fn();
-    const duration = performance.now() - start;
-    if (duration > PERF_CONFIG.THRESHOLD_MS || PERF_CONFIG.VERBOSE) {
-        const color = duration > 16.6 ? '#ff4757' : (duration > 8.0 ? '#ffa502' : '#74b9ff');
-        // Use console.log with styling to avoid the "stack trace" expansion of console.warn
-        console.log(`%c●%c [PERF] ${name.padEnd(25)} %c${duration.toFixed(2).padStart(7)}ms`, `color: ${color}; font-size: 14px;`, 'color: #eee;', `color: ${color}; font-family: monospace;`);
-    }
-    return result;
-}
+// Silent pass-through — subsystem timing now handled by the aggregate
+// frame-level [PERF_VIOLATION] system inside animate().
+function track(_name, fn) { return fn(); }
 
 // --- HEX COORDINATE SYSTEM (Rectangular Sectors) ---
 const UNIT_HEX_PX = 32.0;
@@ -60,7 +53,7 @@ const LIGHTING_DEFAULTS = {
 
 class PistonViewer {
     constructor() {
-        console.log("Initializing PistonViewer (Priority Radial + LOD)...");
+        console.log(`[HEXAGONS] ${APP_VERSION} — loading...`);
         this.container = document.getElementById('canvas-container');
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x0a0a0a); // Dark Grey
@@ -85,16 +78,13 @@ class PistonViewer {
         this.isUserInteracting = false;
         this.controls.addEventListener('start', () => {
             this.isUserInteracting = true;
-            // Ensure tiles instantiated during movement are LOD0-only.
             this.isMoving3D = true;
-            this.resetLODs(); // Immediate downgrade on touch
-            this.log("Interaction Start", "info");
+            this.resetLODs();
         });
         this.controls.addEventListener('end', () => {
             this.isUserInteracting = false;
             this.isMoving3D = false;
             this.lastInteractionTime = performance.now();
-            this.log("Interaction End", "info");
         });
         this.controls.addEventListener('change', () => {
             this.needsRender = true;
@@ -188,6 +178,13 @@ class PistonViewer {
         this.wasMoving3D = false;
         this.sinterQueue = [];
 
+        // Engine state machine (for structured perf logging)
+        this.engineState = ENGINE_STATES.STATIC;
+        this._perfViolationCount = 0;
+        this._perfStats = {};  // Per-state rolling stats: { STATE: { min, max, sum, count } }
+        this._texErrorCount = 0; // Dedup repeated texture decode failures
+        this._frameCounter = 0;
+
         // Frametime Graph
         this.frametimeCanvas = document.getElementById('frametime-graph');
         this.frametimeCtx = this.frametimeCanvas ? this.frametimeCanvas.getContext('2d') : null;
@@ -220,7 +217,7 @@ class PistonViewer {
     initWorkers() {
         // Create a pool based on concurrency (clamped to 4-6)
         const count = Math.min(6, Math.max(2, navigator.hardwareConcurrency || 4));
-        console.log(`Initializing ${count} Tile Workers...`);
+        // Workers initialized silently
 
         for (let i = 0; i < count; i++) {
             const w = new Worker('./tile_worker.js');
@@ -254,9 +251,7 @@ class PistonViewer {
 
     log(msg, type = "info") {
         const el = document.getElementById('console-output');
-        if (type === "error") console.error(msg);
-        else if (type === "warn") console.warn(msg);
-        else console.log(`[LOG] ${msg}`);
+        // In-app DOM console only — no browser console output
 
         if (!el) return;
         const line = document.createElement('div');
@@ -543,11 +538,8 @@ class PistonViewer {
 
     async initWorld() {
         try {
-            console.log("initWorld: Started.");
             const res = await fetch('tile_manifest.json');
-            console.log("initWorld: Fetch response received.");
             this.manifest = await res.json();
-            console.log("initWorld: JSON parsed. Tiles: " + (this.manifest.tiles ? this.manifest.tiles.length : 'N/A'));
             const { min_x, min_y } = this.manifest.bounds;
             this.worldOrigin = { x: min_x, y: min_y };
 
@@ -561,7 +553,7 @@ class PistonViewer {
                 // Store by "Q_R" for instant lookup
                 this.manifestGrid.set(`${t.q}_${t.r}`, t);
             }
-            console.log("initWorld: Grid populated. Size: " + this.manifestGrid.size);
+
             // -----------------------------------------------
 
             // Preferred start: Stubai Ski Area buildings
@@ -576,14 +568,14 @@ class PistonViewer {
                 // Stubai is in the baked area - use it
                 startX = stubaiBuildingsX - this.worldOrigin.x;
                 startZ = -(stubaiBuildingsY - this.worldOrigin.y);
-                console.log(`Starting at Stubai Ski Area [${stubaiSector.Q},${stubaiSector.R}]`);
+
             } else {
                 // Stubai not baked - fall back to manifest center
                 const cenX = (this.manifest.bounds.min_x + this.manifest.bounds.max_x) * 0.5;
                 const cenY = (this.manifest.bounds.min_y + this.manifest.bounds.max_y) * 0.5;
                 startX = cenX - this.worldOrigin.x;
                 startZ = -(cenY - this.worldOrigin.y);
-                console.log(`Stubai not in manifest. Starting at center instead.`);
+
             }
 
             this.camera.position.set(startX, 1200, startZ);
@@ -600,7 +592,7 @@ class PistonViewer {
             this.flatGeometry.rotateX(-Math.PI / 2);
 
             this.essentialTilesTarget = 1;
-            console.log("initWorld: calling updateLOD");
+
             this.updateLOD();
         } catch (e) {
             console.error("Manifest error: " + e.message);
@@ -980,7 +972,7 @@ class PistonViewer {
 
     updateLOD() {
         if (!this.manifestGrid || this.lodPaused) {
-            if (Math.random() < 0.01) console.log(`updateLOD early return. Grid:${!!this.manifestGrid} Paused:${this.lodPaused}`);
+
             return;
         }
 
@@ -999,7 +991,7 @@ class PistonViewer {
         const radius = Math.ceil((distLimit + 1000) / secW);
 
         if (Math.random() < 0.01) {
-            console.log(`updateLOD: Cam(${camPos.x.toFixed(0)},${camPos.z.toFixed(0)}) UTM(${utmX.toFixed(0)},${utmY.toFixed(0)}) Center[${centerQ},${centerR}] Radius=${radius} ManifestSize=${this.manifestGrid.size}`);
+
         }
 
         // 3. Collect ONLY nearby candidates
@@ -1031,14 +1023,14 @@ class PistonViewer {
         }
 
         if (candidates.length === 0 && Math.random() < 0.05) {
-            console.log("No candidates found! Dumping check for center tile:");
+            // No candidates — silent (expected during extreme zoom-out)
             const t = this.manifestGrid.get(`${centerQ}_${centerR}`);
             if (t) {
                 const dx = t.lx - camPos.x;
                 const dz = t.lz - camPos.z;
-                console.log(`Center Tile [${centerQ},${centerR}]: lx=${t.lx.toFixed(1)} lz=${t.lz.toFixed(1)} CamX=${camPos.x.toFixed(1)} CamZ=${camPos.z.toFixed(1)} Dist=${Math.sqrt(dx * dx + dz * dz).toFixed(1)}`);
+                void 0; // debug: Center tile distance = Math.sqrt(dx*dx+dz*dz)
             } else {
-                console.log(`Center Tile [${centerQ},${centerR}] NOT IN MANIFEST.`);
+                void 0; // debug: Center tile not in manifest
             }
         }
 
@@ -1075,7 +1067,7 @@ class PistonViewer {
             if (!tile && !this.loadingTiles.has(key)) {
                 if (t.d < 5000) {
                     this.loadingTiles.add(key);
-                    console.log(`Queueing load for [${t.q},${t.r}] dist=${t.d.toFixed(1)}`);
+
                     this.loadQueue.push({ t, targetLOD, loadFullTexNow: isEffectivelyFrontTex });
                 }
             } else if (tile) {
@@ -1155,7 +1147,6 @@ class PistonViewer {
     }
 
     async fetchTileOnWorker(task) {
-        console.log(`fetchTileOnWorker starting for [${task.t.q},${task.t.r}]`);
         try {
             const { t } = task;
             const lowTexUrl = `aerial_tiles/low/sector_${t.q}_${t.r}.webp`;
@@ -1168,7 +1159,7 @@ class PistonViewer {
                 binUrl: binUrl
             });
 
-            console.log(`fetchTileOnWorker success for [${t.q},${t.r}]`);
+            // (silent — structured perf logging only)
             // Return data for instantiation frame
             return { task, workerData };
 
@@ -1376,10 +1367,7 @@ class PistonViewer {
             if (tile.lodBuilt) tile.lodBuilt[lodIdx] = true;
         }
 
-        const sintTime = performance.now() - sintStart;
-        if (sintTime > 5) {
-            console.log(`%c🔨 SINTERED-BUILD [${tile.q},${tile.r}] ${lodsBuilt} LODs in ${sintTime.toFixed(1)}ms`, 'color: #a29bfe; font-weight: bold;');
-        }
+        // (sintered-build timing captured by aggregate frame violation)
 
         tile.needsSinteredBuild = false;
         this.needsRender = true;
@@ -1420,13 +1408,15 @@ class PistonViewer {
             // Track for render spike correlation
             this.recentlyUpgradedTextures.push({ q: tile.q, r: tile.r, time: performance.now() });
 
-            if (texLoadTime > 20 || assignTime > 1) {
-                console.log(`%c📥 TEX-UPGRADE [${tile.q},${tile.r}] load:${texLoadTime.toFixed(1)}ms assign:${assignTime.toFixed(2)}ms (${1 + clonedCount} mats set)`, 'color: #fd79a8; font-weight: bold;');
-            }
+            // (tex-upgrade timing captured by aggregate frame violation)
 
             this.needsRender = true;
         } catch (e) {
-            console.error("Texture Upgrade Failed", e);
+            this._texErrorCount++;
+            if (this._texErrorCount <= 3) {
+                console.warn(`[TEX_FAIL] ${tile.q},${tile.r}: ${e.message}`);
+                if (this._texErrorCount === 3) console.warn('[TEX_FAIL] Further texture errors suppressed.');
+            }
         }
         tile.loadingTex = false;
     }
@@ -1488,6 +1478,7 @@ class PistonViewer {
         }
 
         this.loaderHidden = true;
+        console.log(`[HEXAGONS] ${APP_VERSION} — ready in ${(elapsed / 1000).toFixed(1)}s (${this.tiles.size} tiles)`);
         const loader = document.getElementById('loader');
         if (loader) {
             loader.classList.add('hide');
@@ -1696,8 +1687,35 @@ class PistonViewer {
         return !isDone;
     }
 
+    // --- ENGINE STATE DERIVATION ---
+    deriveEngineState(moved, flat) {
+        // Priority order: MOVING_3D > MOVING_2D > SINTERING > STATIC
+        if (this.isMoving3D) return ENGINE_STATES.MOVING_3D;
+        if (moved || this.isUserInteracting) return flat ? ENGINE_STATES.MOVING_2D : ENGINE_STATES.MOVING_3D;
+        const recentUpgrade = this.recentlyUpgradedTextures.some(u => performance.now() - u.time < 100);
+        if (this.sinterQueue.length > 0 || this.upgradeQueue.length > 0 ||
+            this.activeWorkerCount > 0 || this.isRefining || recentUpgrade) return ENGINE_STATES.SINTERING;
+        return ENGINE_STATES.STATIC;
+    }
+
+    // --- MEMORY / STATE REPORT (consumed by Playwright profiler via [MEMORY_REPORT]) ---
+    getDetailedStats(phase) {
+        return {
+            phase,
+            engineState: this.engineState,
+            tileCount: this.tiles.size,
+            loadQueue: this.loadQueue.length,
+            sinterQueue: this.sinterQueue.length,
+            upgradeQueue: this.upgradeQueue.length,
+            activeWorkers: this.activeWorkerCount,
+            materialsTracked: this.materialsToUpdate.size,
+            violationCount: this._perfViolationCount
+        };
+    }
+
     animate() {
         requestAnimationFrame(() => this.animate());
+        this._frameCounter++;
 
         // --- BACKGROUND MAINTENANCE ---
         track('processInstantiationQueue', () => this.processInstantiationQueue());
@@ -1707,17 +1725,14 @@ class PistonViewer {
         const timeSinceInteraction = now - this.lastInteractionTime;
 
         // --- ANTISINTERING REFINEMENT ---
-        // Only refine if user is NOT interacting and we've waited for damping/settling
         if (!this.isUserInteracting && timeSinceInteraction > 200) {
             if (!this.isRefining && !this.isRefinementDone) {
-                this.log("Antisintering: Sharpening world...", "info");
                 this.isRefining = true;
             }
             const stillRefining = track('refineLODs', () => this.refineLODs());
             if (!stillRefining) this.isRefinementDone = true;
         } else {
-            // If user is interacting or just stopped, ensure we are reset
-            if (this.isUserInteracting) { // Only force reset if active, otherwise let it dwell
+            if (this.isUserInteracting) {
                 this.isRefinementDone = false;
             }
         }
@@ -1732,9 +1747,12 @@ class PistonViewer {
         const wasMoving3D = this.isMoving3D;
         this.isMoving3D = !flat && (moved || this.isUserInteracting);
 
-        // If transitioning INTO movement, clear the upgrade queue (don't upload textures during movement)
+        // --- DERIVE ENGINE STATE (must happen after moved/flat/isMoving3D are set) ---
+        this.engineState = this.deriveEngineState(moved, flat);
+
+        // If transitioning INTO movement, clear the upgrade queue
         if (!wasMoving3D && this.isMoving3D) {
-            this.upgradeQueue.length = 0; // Clear queue
+            this.upgradeQueue.length = 0;
             for (const tile of this.tiles.values()) {
                 tile.queuedForUpgrade = false;
             }
@@ -1749,9 +1767,11 @@ class PistonViewer {
         }
 
         // --- RENDER CHECK ---
-        // If damping is active (moved=true) or logic set a flag, proceed.
-        // If refinedLODs set needsRender, we process it here.
+        // STATIC state: must NOT render. Early-out if nothing moved and no flags set.
         if (!moved && !this.needsRender) return;
+
+        // ===== BEGIN TIMED RENDER CYCLE =====
+        const cycleStart = performance.now();
 
         this.updateRenderStats(now);
         this.updateFps();
@@ -1765,37 +1785,30 @@ class PistonViewer {
             this.isRefining = false;
             this.resetLODs();
             this.needsLODUpdate = true;
-            this.lodTransitionInProgress = false; // Exit transition on re-interaction
+            this.lodTransitionInProgress = false;
             this.lastLodPreset = 'MOVING';
         } else if (wasMoving3D && !flat) {
-            // Just transitioned from moving -> sintered: immediately switch to target ranges so LOD0
-            // doesn't remain visible at close range once finer LODs come online.
             const target = this.isMobile ? this.LOD_CONFIG.MOBILE.TARGET : this.LOD_CONFIG.DESKTOP.TARGET;
             this.lodRanges = { ...target };
             this.needsLODUpdate = true;
             this.syncLODUI();
-            this.lodTransitionInProgress = true; // Flag transition (expect big spike!)
+            this.lodTransitionInProgress = true;
             this.lastLodPreset = 'TARGET';
-            console.log(`%c⏱️  LOD TRANSITION: MOVING → TARGET (expect visibility thrash + high frametime)`, 'color: #a29bfe; font-weight: bold;');
         }
 
         this.updateFloorState(h);
         this.maintainCameraAltitudeDuringAnimation(h);
 
-        const visStart = performance.now();
+        // --- VISIBILITY PASS ---
         let visibilityChanges = 0;
-        let tilesWithManyChanges = [];
         for (const t of this.tiles.values()) {
-            let tileChanges = 0;
             if (flat) {
-                if (t.flatMesh && !t.flatMesh.visible) { t.flatMesh.visible = true; visibilityChanges++; tileChanges++; }
-                if (t.mesh && t.mesh.visible) { t.mesh.visible = false; visibilityChanges++; tileChanges++; }
+                if (t.flatMesh && !t.flatMesh.visible) { t.flatMesh.visible = true; visibilityChanges++; }
+                if (t.mesh && t.mesh.visible) { t.mesh.visible = false; visibilityChanges++; }
             } else {
-                if (t.flatMesh && t.flatMesh.visible) { t.flatMesh.visible = false; visibilityChanges++; tileChanges++; }
+                if (t.flatMesh && t.flatMesh.visible) { t.flatMesh.visible = false; visibilityChanges++; }
                 if (t.mesh) {
-                    if (!t.mesh.visible) { t.mesh.visible = true; visibilityChanges++; tileChanges++; }
-                    // CPU-SIDE LOD CULLING (True "Display None")
-                    // Iterate LOD layers and hide those with 0 range
+                    if (!t.mesh.visible) { t.mesh.visible = true; visibilityChanges++; }
                     t.mesh.children.forEach(meshGroup => {
                         const m = meshGroup.children[0]?.material;
                         if (m && m.userData.lodIdx !== undefined) {
@@ -1804,32 +1817,15 @@ class PistonViewer {
                             if (idx === 3) active = (this.lodRanges.unitEnd > 0);
                             else if (idx === 2) active = (this.lodRanges.smallEnd > 0);
                             else if (idx === 1) active = (this.lodRanges.mediumEnd > 0);
-                            else if (idx === 0) active = true; // Large always active or handled by tile culling
-
-                            if (meshGroup.visible !== active) { meshGroup.visible = active; visibilityChanges++; tileChanges++; }
+                            else if (idx === 0) active = true;
+                            if (meshGroup.visible !== active) { meshGroup.visible = active; visibilityChanges++; }
                         }
                     });
                 }
             }
-            if (tileChanges > 50) {
-                tilesWithManyChanges.push({ q: t.q, r: t.r, changes: tileChanges });
-            }
-        }
-        const visTime = performance.now() - visStart;
-        if (visibilityChanges > 100) {
-            const topOffenders = tilesWithManyChanges.sort((a, b) => b.changes - a.changes).slice(0, 3);
-            const offenderStr = topOffenders.map(x => `[${x.q},${x.r}]:${x.changes}`).join(' ');
-            const stateInfo = this.isMoving3D ? '(3D-MOVING)' : flat ? '(FLAT)' : '(3D-SINTERED)';
-            console.log(`%c  [vis-changes: ${visibilityChanges} in ${visTime.toFixed(2)}ms] ${stateInfo} TOP: ${offenderStr}`, 'color: #dfe6e9; font-size: 11px;');
-
-            // DIAGNOSTIC: If we're in 3D moving and seeing huge visibility changes, something is wrong!
-            if (this.isMoving3D && visibilityChanges > 200) {
-                console.log(`%c  ⚠️ DIAGNOSTIC: High visibility thrash during 3D moving!`, 'color: #ffa502; font-size: 11px;');
-                console.log(`%c    LOD Ranges: unit[0-${this.lodRanges.unitEnd}] small[${this.lodRanges.smallStart}-${this.lodRanges.smallEnd}] med[${this.lodRanges.mediumStart}-${this.lodRanges.mediumEnd}] large[${this.lodRanges.largeStart}-${this.renderSettings.renderDistance}]`, 'color: #ffa502; font-size: 10px;');
-            }
         }
 
-        // If settled in 3D, promote tiles to full LODs gradually.
+        // --- SINTERING (settled 3D) ---
         if (!flat && !this.isMoving3D) {
             const inView = this.getTilesInView();
             for (const t of inView) {
@@ -1844,10 +1840,8 @@ class PistonViewer {
         }
         this.wasMoving3D = this.isMoving3D;
 
-        // MATERIAL UNIFORM UPDATE TRACKING
-        const matUpdateStart = performance.now();
+        // --- MATERIAL UNIFORM UPDATE ---
         let needsUpdateCount = 0;
-        let textureUpdatedMaterials = [];
         for (const m of this.materialsToUpdate) {
             if (m.needsUpdate) needsUpdateCount++;
             if (m.userData.shader) {
@@ -1866,23 +1860,11 @@ class PistonViewer {
                     const idx = m.userData.lodIdx;
                     let minD = 0.0, maxD = 100000.0;
 
-                    // Use granular ranges
-                    if (idx === -1) { // Flat Mesh - Always allowed distance-wise
-                        minD = 0.0;
-                        maxD = 100000.0;
-                    } else if (idx === 3) { // Unit
-                        minD = 0.0;
-                        maxD = this.lodRanges.unitEnd;
-                    } else if (idx === 2) { // Small
-                        minD = this.lodRanges.smallStart;
-                        maxD = this.lodRanges.smallEnd;
-                    } else if (idx === 1) { // Medium
-                        minD = this.lodRanges.mediumStart;
-                        maxD = this.lodRanges.mediumEnd;
-                    } else if (idx === 0) { // Large
-                        minD = this.lodRanges.largeStart;
-                        maxD = this.renderSettings.renderDistance + 500.0;
-                    }
+                    if (idx === -1) { minD = 0.0; maxD = 100000.0; }
+                    else if (idx === 3) { minD = 0.0; maxD = this.lodRanges.unitEnd; }
+                    else if (idx === 2) { minD = this.lodRanges.smallStart; maxD = this.lodRanges.smallEnd; }
+                    else if (idx === 1) { minD = this.lodRanges.mediumStart; maxD = this.lodRanges.mediumEnd; }
+                    else if (idx === 0) { minD = this.lodRanges.largeStart; maxD = this.renderSettings.renderDistance + 500.0; }
 
                     if (!m.userData.shader.uniforms.uLodRadii || !m.userData.shader.uniforms.uLodRadii.value || !m.userData.shader.uniforms.uLodRadii.value.set) {
                         m.userData.shader.uniforms.uLodRadii = { value: new THREE.Vector2(0, 100000.0) };
@@ -1891,67 +1873,74 @@ class PistonViewer {
                 }
             }
         }
-        const matUpdateTime = performance.now() - matUpdateStart;
-        if (needsUpdateCount > 2 && matUpdateTime > 5) {
-            console.log(`%c  [mat-uniforms: ${matUpdateTime.toFixed(1)}ms, ${needsUpdateCount} needsUpdate→recompile]`, 'color: #dfe6e9; font-size: 11px;');
-        }
 
-        // RENDER CALL WITH SPIKE DETECTION
-        const renderStart = performance.now();
+        // --- RENDER ---
         this.renderer.render(this.scene, this.camera);
-        const renderTime = performance.now() - renderStart;
 
-        if (renderTime > 50) {
-            let culprits = [];
-            if (matUpdateTime > 10) culprits.push(`matLoop${matUpdateTime.toFixed(0)}m`);
+        // ===== END TIMED RENDER CYCLE =====
+        const cycleDuration = performance.now() - cycleStart;
+        const budget = STATE_BUDGETS_MS[this.engineState];
 
-            // VIS THRASH is usually the MAIN culprit for big spikes
-            if (visibilityChanges > 100) {
-                culprits.unshift(`VIS-THRASH:${visibilityChanges}✓`);
-            } else if (visibilityChanges > 10) {
-                culprits.push(`vis${visibilityChanges}`);
-            }
+        // --- STRUCTURED VIOLATION LOGGING ---
+        if (cycleDuration > budget) {
+            this._perfViolationCount++;
 
-            if (needsUpdateCount > 0) culprits.push(`${needsUpdateCount}✎mat→recompile`);
+            if (this._perfViolationCount <= PERF_VERBOSE_MAX) {
+                // VERBOSE: Full-fat output for first N violations
+                const culprits = [];
+                if (visibilityChanges > 50) culprits.push(`vis-thrash:${visibilityChanges}`);
+                if (needsUpdateCount > 0) culprits.push(`mat-recompile:${needsUpdateCount}`);
+                const recentUpgrades = this.recentlyUpgradedTextures.filter(u => now - u.time < 50);
+                if (recentUpgrades.length > 0) culprits.push(`tex-upgrade:${recentUpgrades.length}`);
+                this.recentlyUpgradedTextures = recentUpgrades.slice(-3);
+                if (this.sinterQueue.length > 0) culprits.push(`sinter-queue:${this.sinterQueue.length}`);
+                if (this.lodTransitionInProgress) culprits.push('lod-transition');
+                if (culprits.length === 0) culprits.push('gpu-render');
 
-            // Check for recent texture upgrades (within last 50ms)
-            const now = performance.now();
-            const recentUpgrades = this.recentlyUpgradedTextures.filter(u => now - u.time < 50);
-            if (recentUpgrades.length > 0) {
-                culprits.push(`tex:${recentUpgrades.map(u => `[${u.q},${u.r}]`).join(',')}`);
-            }
-            this.recentlyUpgradedTextures = recentUpgrades.slice(-3); // Keep last 3
-
-            // If we're in LOD transition, this is EXPECTED and not an anomaly
-            if (this.lodTransitionInProgress) {
-                // Only flag for 2 frames (this frame + next)
-                this.lodTransitionInProgress = false;
-                const color = '#a29bfe';
-                console.log(`%c✓ LOD TRANSITION FRAME ${renderTime.toFixed(1)}ms [${culprits.join(', ')}]`, `color: ${color}; font-weight: bold;`);
+                console.log('[PERF_VIOLATION] ' + JSON.stringify({
+                    state: this.engineState,
+                    duration: +cycleDuration.toFixed(1),
+                    budget,
+                    culprits,
+                    frame: this._frameCounter
+                }));
             } else {
-                // Likely causes of big spikes (outside of transitions):
-                // 1. VISIBILITY THRASHING (>100 meshes changing visibility = unexpected!)
-                // 2. GPU shader compilation when material.needsUpdate=true
-                // 3. Material assignment stalls (createImageBitmap, CanvasTexture creation)
-                // 4. Texture upgrades forcing shader recompilation
-                // 5. Actual GPU rendering cost (frustum culling, scene traversal, geometry draw calls)
-                const color = renderTime > 200 ? '#ff4757' : (renderTime > 100 ? '#ffa502' : '#74b9ff');
-                let culpritStr = '';
-                if (visibilityChanges > 100) {
-                    // Visibility thrashing stalls GPU geometry updates + shader binding
-                    culpritStr = ` [${culprits.join(', ')}] ← VISIBILITY IS THE KILLER (unexpected during 3D moving!)`;
-                } else if (needsUpdateCount > 0) {
-                    // High needsUpdate count almost always means GPU shader recompilation
-                    culpritStr = ` [SHADER-RECOMPILE: ${needsUpdateCount} mats]`;
-                } else if (culprits.length > 0) {
-                    culpritStr = ` [${culprits.join(', ')}]`;
-                } else {
-                    // Unknown cause - likely internal THREE.js/GPU work (use Chrome DevTools Performance tab)
-                    culpritStr = ' [use Chrome DevTools Performance tab to profile]';
+                // STATISTICAL: Accumulate silently, flush every PERF_STATS_WINDOW violations
+                const st = this.engineState;
+                if (!this._perfStats[st]) this._perfStats[st] = { min: Infinity, max: -Infinity, sum: 0, count: 0 };
+                const s = this._perfStats[st];
+                s.min = Math.min(s.min, cycleDuration);
+                s.max = Math.max(s.max, cycleDuration);
+                s.sum += cycleDuration;
+                s.count++;
+
+                const accumulated = Object.values(this._perfStats).reduce((a, b) => a + b.count, 0);
+                if (accumulated >= PERF_STATS_WINDOW) {
+                    const summary = {};
+                    for (const [state, data] of Object.entries(this._perfStats)) {
+                        summary[state] = {
+                            count: data.count,
+                            avg: +(data.sum / data.count).toFixed(1),
+                            min: +data.min.toFixed(1),
+                            max: +data.max.toFixed(1)
+                        };
+                    }
+                    console.log('[PERF_VIOLATION] ' + JSON.stringify({
+                        type: 'stats',
+                        totalViolations: this._perfViolationCount,
+                        window: PERF_STATS_WINDOW,
+                        summary,
+                        frame: this._frameCounter
+                    }));
+                    // Reset accumulators for next window
+                    this._perfStats = {};
                 }
-                console.log(`%c⚠️  RENDER SPIKE ${renderTime.toFixed(1)}ms${culpritStr}`, `color: ${color}; font-weight: bold;`);
             }
         }
+
+        // Consume transition flag (allow one frame grace)
+        if (this.lodTransitionInProgress) this.lodTransitionInProgress = false;
+
         this.needsRender = false;
         this.floorState.lastFactor = h;
     }

@@ -29,6 +29,7 @@ import path from 'path';
 
     let metrics = {
         violations: { MOVING_2D: [], MOVING_3D: [], SINTERING: [], STATIC: [] },
+        statsSummaries: [],
         memorySnapshots: [],
         errors: []
     };
@@ -43,10 +44,18 @@ import path from 'path';
         if (text.startsWith('[PERF_VIOLATION]')) {
             try {
                 const data = JSON.parse(text.replace('[PERF_VIOLATION]', '').trim());
-                if (metrics.violations[data.state]) {
+
+                if (data.type === 'stats') {
+                    // Rolling stats window summary
+                    metrics.statsSummaries.push(data);
+                    const parts = Object.entries(data.summary).map(([st, s]) =>
+                        `${st}: ${s.count}× avg=${s.avg}ms [${s.min}-${s.max}ms]`);
+                    console.log(`📊 STATS (${data.totalViolations} total) | ${parts.join(' | ')}`);
+                } else if (data.state && metrics.violations[data.state]) {
+                    // Full-fat verbose violation
                     metrics.violations[data.state].push(data);
+                    console.log(`⚠️  VIOLATION [${data.state.padEnd(10)}] | ${data.duration.toFixed(1)}ms (Budget: ${data.budget}ms) | Culprits: ${data.culprits}`);
                 }
-                console.log(`⚠️  VIOLATION [${data.state.padEnd(10)}] | ${data.duration.toFixed(1)}ms (Budget: ${data.budget}ms) | Culprits: ${data.culprits}`);
             } catch (e) { }
         }
 
