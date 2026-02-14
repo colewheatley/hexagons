@@ -254,6 +254,10 @@ class PistonViewer {
 
     log(msg, type = "info") {
         const el = document.getElementById('console-output');
+        if (type === "error") console.error(msg);
+        else if (type === "warn") console.warn(msg);
+        else console.log(`[LOG] ${msg}`);
+
         if (!el) return;
         const line = document.createElement('div');
         line.className = `log-line ${type}`;
@@ -539,8 +543,11 @@ class PistonViewer {
 
     async initWorld() {
         try {
+            console.log("initWorld: Started.");
             const res = await fetch('tile_manifest.json');
+            console.log("initWorld: Fetch response received.");
             this.manifest = await res.json();
+            console.log("initWorld: JSON parsed. Tiles: " + (this.manifest.tiles ? this.manifest.tiles.length : 'N/A'));
             const { min_x, min_y } = this.manifest.bounds;
             this.worldOrigin = { x: min_x, y: min_y };
 
@@ -554,11 +561,30 @@ class PistonViewer {
                 // Store by "Q_R" for instant lookup
                 this.manifestGrid.set(`${t.q}_${t.r}`, t);
             }
+            console.log("initWorld: Grid populated. Size: " + this.manifestGrid.size);
             // -----------------------------------------------
 
-            // Manual world pos for the Austrian GK West projection
-            const startX = 1979.4 - this.worldOrigin.x;
-            const startZ = -(214214.5 - this.worldOrigin.y);
+            // Preferred start: Stubai Ski Area buildings
+            // These coordinates match STUBAI_LAT/LON in waffle_iron.py (sector 73, 252)
+            const stubaiBuildingsX = 59817.9;
+            const stubaiBuildingsY = 206666.2;
+            const stubaiSector = worldToSectorID(stubaiBuildingsX, stubaiBuildingsY);
+            const stubaiKey = `${stubaiSector.Q}_${stubaiSector.R}`;
+
+            let startX, startZ;
+            if (this.manifestGrid.has(stubaiKey)) {
+                // Stubai is in the baked area - use it
+                startX = stubaiBuildingsX - this.worldOrigin.x;
+                startZ = -(stubaiBuildingsY - this.worldOrigin.y);
+                console.log(`Starting at Stubai Ski Area [${stubaiSector.Q},${stubaiSector.R}]`);
+            } else {
+                // Stubai not baked - fall back to manifest center
+                const cenX = (this.manifest.bounds.min_x + this.manifest.bounds.max_x) * 0.5;
+                const cenY = (this.manifest.bounds.min_y + this.manifest.bounds.max_y) * 0.5;
+                startX = cenX - this.worldOrigin.x;
+                startZ = -(cenY - this.worldOrigin.y);
+                console.log(`Stubai not in manifest. Starting at center instead.`);
+            }
 
             this.camera.position.set(startX, 1200, startZ);
             this.controls.target.set(startX, 0, startZ);
@@ -574,8 +600,12 @@ class PistonViewer {
             this.flatGeometry.rotateX(-Math.PI / 2);
 
             this.essentialTilesTarget = 1;
+            console.log("initWorld: calling updateLOD");
             this.updateLOD();
-        } catch (e) { this.log("Manifest error: " + e.message, "error"); }
+        } catch (e) {
+            console.error("Manifest error: " + e.message);
+            this.log("Manifest error: " + e.message, "error");
+        }
     }
 
     worldToAxialScale(x, y, s) {
@@ -949,7 +979,10 @@ class PistonViewer {
     // --- CORE LOOP ---
 
     updateLOD() {
-        if (!this.manifestGrid || this.lodPaused) return;
+        if (!this.manifestGrid || this.lodPaused) {
+            if (Math.random() < 0.01) console.log(`updateLOD early return. Grid:${!!this.manifestGrid} Paused:${this.lodPaused}`);
+            return;
+        }
 
         const camPos = this.camera.position;
         const distLimit = this.renderSettings.renderDistance; // e.g. 4000m
@@ -965,13 +998,21 @@ class PistonViewer {
         // 2. How many tiles out do we need to check?
         const radius = Math.ceil((distLimit + 1000) / secW);
 
+        if (Math.random() < 0.01) {
+            console.log(`updateLOD: Cam(${camPos.x.toFixed(0)},${camPos.z.toFixed(0)}) UTM(${utmX.toFixed(0)},${utmY.toFixed(0)}) Center[${centerQ},${centerR}] Radius=${radius} ManifestSize=${this.manifestGrid.size}`);
+        }
+
         // 3. Collect ONLY nearby candidates
         const candidates = [];
 
         for (let q = centerQ - radius; q <= centerQ + radius; q++) {
             for (let r = centerR - radius; r <= centerR + radius; r++) {
-                const t = this.manifestGrid.get(`${q}_${r}`);
-                if (!t) continue;
+                const key = `${q}_${r}`;
+                const t = this.manifestGrid.get(key);
+                if (!t) {
+                    // console.log(`Missing tile ${key}`);
+                    continue;
+                }
 
                 // Fast Distance Check (Squared)
                 const dx = t.lx - camPos.x;
@@ -979,10 +1020,25 @@ class PistonViewer {
                 const dSq = dx * dx + dz * dz;
 
                 // Hard Limit Check (Render Distance + Buffer)
-                if (dSq > (distLimit + 2000) ** 2) continue;
+                if (dSq > (distLimit + 2000) ** 2) {
+                    // console.log(`Tile ${key} too far: ${Math.sqrt(dSq).toFixed(0)}m`);
+                    continue;
+                }
 
                 t.d = Math.sqrt(dSq);
                 candidates.push(t);
+            }
+        }
+
+        if (candidates.length === 0 && Math.random() < 0.05) {
+            console.log("No candidates found! Dumping check for center tile:");
+            const t = this.manifestGrid.get(`${centerQ}_${centerR}`);
+            if (t) {
+                const dx = t.lx - camPos.x;
+                const dz = t.lz - camPos.z;
+                console.log(`Center Tile [${centerQ},${centerR}]: lx=${t.lx.toFixed(1)} lz=${t.lz.toFixed(1)} CamX=${camPos.x.toFixed(1)} CamZ=${camPos.z.toFixed(1)} Dist=${Math.sqrt(dx * dx + dz * dz).toFixed(1)}`);
+            } else {
+                console.log(`Center Tile [${centerQ},${centerR}] NOT IN MANIFEST.`);
             }
         }
 
@@ -1019,6 +1075,7 @@ class PistonViewer {
             if (!tile && !this.loadingTiles.has(key)) {
                 if (t.d < 5000) {
                     this.loadingTiles.add(key);
+                    console.log(`Queueing load for [${t.q},${t.r}] dist=${t.d.toFixed(1)}`);
                     this.loadQueue.push({ t, targetLOD, loadFullTexNow: isEffectivelyFrontTex });
                 }
             } else if (tile) {
@@ -1098,6 +1155,7 @@ class PistonViewer {
     }
 
     async fetchTileOnWorker(task) {
+        console.log(`fetchTileOnWorker starting for [${task.t.q},${task.t.r}]`);
         try {
             const { t } = task;
             const lowTexUrl = `aerial_tiles/low/sector_${t.q}_${t.r}.webp`;
@@ -1110,6 +1168,7 @@ class PistonViewer {
                 binUrl: binUrl
             });
 
+            console.log(`fetchTileOnWorker success for [${t.q},${t.r}]`);
             // Return data for instantiation frame
             return { task, workerData };
 

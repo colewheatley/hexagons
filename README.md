@@ -72,6 +72,8 @@ python3 hex_backend/waffle_iron.py --full
 ```bash
 # From the project root
 npx http-server frontend/app -p 8099
+# OR (if node is not available or for a quick test)
+python3 -m http.server 8099 --directory frontend/app
 ```
 
 Then open `http://localhost:8099/`.
