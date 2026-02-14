@@ -44,7 +44,7 @@ EXPECTED BEHAVIOR:
 - Camera controls (zoom/pan) should work smoothly
 
 Your task:
-1. Run: node $SCRIPT_DIR/playwright_screenshots.js $URL $OUTPUT_DIR
+1. Run: node $SCRIPT_DIR/performance_profiler.js $URL $OUTPUT_DIR
 2. Wait for completion
 3. Analyze all screenshots in $OUTPUT_DIR
 4. Check for visual bugs: z-fighting, missing geometry, black screens, wireframes, rendering artifacts
