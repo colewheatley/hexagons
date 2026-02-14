@@ -14,8 +14,8 @@ echo "S3 Sync: DISABLED (Local Only)"
 echo "Time: $(date)"
 echo "--------------------------------------------------"
 
-# Run the bake (defaults to mini-bake)
-python3 -u hex_backend/waffle_iron.py 2>&1 | tee lil_bake_$(date +%Y%m%d_%H%M%S).log
+# Run the bake (passes through args like --center or --force)
+python3 -u hex_backend/waffle_iron.py "$@" 2>&1 | tee lil_bake_$(date +%Y%m%d_%H%M%S).log
 
 echo "--------------------------------------------------"
 echo "✅ Mini-Bake Complete."

@@ -1,14 +1,41 @@
-# 🧇 Waffle Iron v4.0 - Uber-Skirt Edition
-# - 16-Byte "Uber-Hex" Layout (Power-of-Two aligned)
-# - Gapless "Partial Skirt" Topology (SE, S, SW ownership)
-# - "Diamond" Area Sampling for faithful edge slopes
-# - Baked-in Center Normals (Nx, Nz) for smooth Cap lighting
-# - Int16 Vertical Deltas (Decimeter precision)
+# 🧇 Waffle Iron v4.1 - Incremental Bake Edition
+# =============================================================================
+# FEATURES:
+#   - 16-Byte "Uber-Hex" Layout (Power-of-Two aligned)
+#   - Gapless "Partial Skirt" Topology (SE, S, SW ownership)
+#   - "Diamond" Area Sampling for faithful edge slopes
+#   - Baked-in Center Normals (Nx, Nz) for smooth Cap lighting
+#   - Int16 Vertical Deltas (Decimeter precision)
+#   - Incremental baking with BAKER_VERSION skip logic
+#   - Configurable grid size (--grid 1..16) and center (--center Q,R)
+#   - Regional DEM/gradient cache for mini-bake (memory-efficient)
+#
+# DATA SPECS (files NOT in git — too large):
+#   Aerial TIFs:     3,486 files, 2.4–12.9 MB each (avg 7.2 MB), 24.6 GB total
+#                    RGB orthophotos, EPSG:31254, ~0.2m/px
+#   DEM:             DGM_Tirol_5m_epsg31254_2006_2020.tif
+#                    1.1 GB on disk, 4.85 GB uncompressed (26612×45538, float32, 5m res)
+#   Gradient Cache:  DGM_Tirol_gradient_cached.tif
+#                    14 GB on disk, 38.78 GB uncompressed (53224×91076, 2 bands float32)
+#                    Generated on first run from the DEM (2× upsampled dx/dy gradients)
+#
+# OUTPUT FORMATS (baked per-sector, also NOT in git):
+#   .bin:   HEX4 header + 4 LOD layers of packed 16-byte records
+#           Each record: dq(b) dr(b) h(H) d1(h) d2(h) d3(h) s1(B) s2(B) s3(B) nx(B) nz(B) pad(x)
+#   .webp:  Aerial texture with 64px padding for seamless tile blending
+#           Saved at full res + 1/16 "low" res for LOD streaming
+#
+# HARDWARE PROFILE (reference machine):
+#   MacBook M1, 16 GB shared memory
+#   Mini-bake 12×12 (144 sectors): ~11 min  |  avg 4.6s/sector
+#   Mini-bake regional cache: ~19 MB DEM + ~149 MB gradient (vs 1.1 GB + 14 GB full)
+# =============================================================================
 
 import os
 import glob
 import math
 import time
+import json
 import numpy as np
 import rasterio
 import rasterio.enums
@@ -35,7 +62,7 @@ def latlon_to_world_meters(lat, lon):
 # =============================================================================
 S3_ENABLED = False # Default to False
 S3_BUCKET = "wheatley.cloud"
-S3_PREFIX = "powfinder/app" # Changed from "powfinder/hexagons/app"
+S3_PREFIX = "powfinder/app"
 
 # =============================================================================
 # CONSTANTS & CONFIGURATION
@@ -44,18 +71,18 @@ TEXTURE_PADDING_PX = 64
 WEB_P_QUALITY = 10
 DEBUG_MODE = False
 
-# Stubai Center (For Mini-Bake)
-STUBAI_LAT = 46.98705560886202
-STUBAI_LON = 11.115050838788871
+# Stubai Center (For Mini-Bake) — precise coordinates for sector (73, 252)
+STUBAI_LAT = 46.996315457481984
+STUBAI_LON = 11.119477646985764
 
-# Default to Stubai for mini-bake
-TARGET_LAT = STUBAI_LAT
-TARGET_LON = STUBAI_LON
-MINI_BAKE_GRID_SIZE = 12 # 12x12 grid for mini-bake
+BAKER_VERSION = "4.1.0"  # bump this when you change baking logic to trigger re-bake
+
+DEFAULT_GRID_SIZE = 12  # 12×12 grid for mini-bake (configurable via --grid)
 
 DEM_PATH = "hex_backend/DGM_Tirol_5m_epsg31254_2006_2020.tif"
-GRADIENT_PATH = "hex_backend/DGM_Tirol_gradient_cached.tif" # New Graph Cache
+GRADIENT_PATH = "hex_backend/DGM_Tirol_gradient_cached.tif"
 AERIAL_DIR = "hex_backend/aerial_tifs"
+METADATA_PATH = "frontend/app/tiles_bin/metadata.json"
 
 def upload_to_s3(local_path):
     """
@@ -200,6 +227,65 @@ def get_or_create_gradient_map(dem_path, output_path, upsample_factor=1):
     print(f"✅ Generated Gradient Map in {time.time() - start_time:.2f}s")
     return rasterio.open(output_path)
 
+def generate_regional_gradient(dem_ds, bounds, upsample_factor=2, output_path="hex_backend/mini_bake_gradient.tif"):
+    """
+    Generate a small gradient TIF covering only the specified bounding box.
+    Much faster and lighter than the full Tirol gradient cache (~150MB vs 14GB).
+    Args:
+        dem_ds: already-opened rasterio DEM dataset
+        bounds: (min_x, min_y, max_x, max_y) in DEM CRS
+        upsample_factor: resolution multiplier (2 = 2.5m from 5m DEM)
+        output_path: where to write the gradient TIF
+    """
+    padding_m = 500.0  # extra padding for edge gradients
+    min_x, min_y, max_x, max_y = bounds
+    
+    # Read the DEM window with padding
+    dem_window = rasterio.windows.from_bounds(
+        min_x - padding_m, min_y - padding_m,
+        max_x + padding_m, max_y + padding_m, dem_ds.transform)
+    dem_window = dem_window.intersection(
+        rasterio.windows.Window(0, 0, dem_ds.width, dem_ds.height))
+    
+    out_h = int(dem_window.height * upsample_factor)
+    out_w = int(dem_window.width * upsample_factor)
+    
+    print(f"   Generating regional gradient ({out_w}×{out_h} px)...")
+    t0 = time.time()
+    
+    chunk_dem = dem_ds.read(
+        1, window=dem_window,
+        out_shape=(out_h, out_w),
+        resampling=rasterio.enums.Resampling.lanczos)
+    
+    # Compute transform for the output
+    win_transform = dem_ds.window_transform(dem_window)
+    out_transform = win_transform * win_transform.scale(
+        dem_window.width / out_w, dem_window.height / out_h)
+    
+    res_x = abs(out_transform[0])
+    res_y = abs(out_transform[4])
+    
+    dy, dx = np.gradient(chunk_dem, res_y, res_x)
+    real_dy = -dy  # flip for world-space Y
+    real_dx = dx
+    
+    profile = dem_ds.profile.copy()
+    profile.update(
+        dtype=rasterio.float32, count=2, driver='GTiff',
+        width=out_w, height=out_h, transform=out_transform,
+        compress='lzw', tiled=True, blockxsize=256, blockysize=256,
+        predictor=3)
+    
+    with rasterio.open(output_path, 'w', **profile) as dst:
+        dst.write(real_dx, 1)
+        dst.write(real_dy, 2)
+    
+    elapsed = time.time() - t0
+    size_mb = os.path.getsize(output_path) / 1e6
+    print(f"   ✅ Regional gradient: {size_mb:.1f} MB in {elapsed:.1f}s")
+    return rasterio.open(output_path)
+
 def bake_sector_textures(SX, SY, valid_tifs, output_dir="frontend/app/aerial_tiles"):
     import PIL.Image as Image
     from rasterio.windows import from_bounds
@@ -285,7 +371,7 @@ def get_diamond_stats(grad_ds, p1, p2):
     slope_deg = math.degrees(slope_rad)
     return slope_deg
 
-def bake_sector_binary(SX, SY, dem_data, dem_transform, grad_ds, output_dir="frontend/app/tiles_bin"):
+def bake_sector_binary(SX, SY, dem_ds, grad_ds, output_dir="frontend/app/tiles_bin"):
     if not os.path.exists(output_dir): os.makedirs(output_dir)
     min_x, min_y, max_x, max_y = coord_util.sector_id_to_bounds_meters(SX, SY)
 
@@ -295,10 +381,18 @@ def bake_sector_binary(SX, SY, dem_data, dem_transform, grad_ds, output_dir="fro
     center_wx, center_wy = coord_util.get_sector_center(SX, SY)
     cq, cr = [int(round(v)) for v in coord_util.world_meters_to_axial_approx(center_wx, center_wy)]
 
-    # We need to manually cache gradient data for the sector to avoid 1000s of disk reads
-    # Read entire sector gradient + padding
-    padding = 100.0
-    g_window = rasterio.windows.from_bounds(min_x-padding, min_y-padding, max_x+padding, max_y+padding, grad_ds.transform)
+    # --- READ DEM WINDOW for this sector ---
+    padding_m = 200.0  # meters of padding for neighbor height samples
+    dem_window = rasterio.windows.from_bounds(
+        min_x - padding_m, min_y - padding_m,
+        max_x + padding_m, max_y + padding_m, dem_ds.transform)
+    dem_window = dem_window.intersection(rasterio.windows.Window(0, 0, dem_ds.width, dem_ds.height))
+    dem_data = dem_ds.read(1, window=dem_window)
+    dem_transform = dem_ds.window_transform(dem_window)
+
+    # --- READ GRADIENT WINDOW for this sector ---
+    padding_g = 200.0
+    g_window = rasterio.windows.from_bounds(min_x-padding_g, min_y-padding_g, max_x+padding_g, max_y+padding_g, grad_ds.transform)
     g_window = g_window.intersection(rasterio.windows.Window(0,0,grad_ds.width, grad_ds.height))
     
     # We will read this into memory: (2, H, W)
@@ -521,9 +615,33 @@ def bake_sector_binary(SX, SY, dem_data, dem_transform, grad_ds, output_dir="fro
 
 def main():
     global S3_ENABLED
-    parser = argparse.ArgumentParser(description="🧇 Waffle Iron v4.0")
-    parser.add_argument("--full", action="store_true", help="Run full global bake (defaults to 12x12 Mini-Bake)")
+    parser = argparse.ArgumentParser(description="🧇 Waffle Iron v4.1 — Incremental Bake")
+    parser.add_argument("--full", action="store_true", help="Run full global bake (defaults to Mini-Bake)")
+    parser.add_argument("--center", type=str, help="Center sector as 'Q,R' (e.g. 73,252)")
+    parser.add_argument("--grid", type=int, default=DEFAULT_GRID_SIZE,
+                        help=f"Grid size NxN around center (1-16, default {DEFAULT_GRID_SIZE})")
+    parser.add_argument("--force", action="store_true", help="Force re-bake of all sectors in range")
     args = parser.parse_args()
+
+    # Validate grid size
+    grid_size = max(1, min(16, args.grid))
+
+    # Load existing metadata for skip logic
+    metadata = {}
+    if os.path.exists(METADATA_PATH):
+        try:
+            with open(METADATA_PATH, "r") as f:
+                metadata = json.load(f)
+        except: pass
+    
+    prev_version = metadata.get("baker_version", "")
+    can_skip = (prev_version == BAKER_VERSION) and not args.force
+    if can_skip:
+        print(f"🔄 Incremental bake: BAKER_VERSION {BAKER_VERSION} matches. Will skip existing tiles.")
+    elif args.force:
+        print(f"🔥 Force re-bake enabled.")
+    else:
+        print(f"✨ New baker version detected ({prev_version} -> {BAKER_VERSION}). Re-baking everything in range.")
 
     # Disk Space Check
     import shutil as disk_check
@@ -539,46 +657,33 @@ def main():
 
     if args.full:
         print("🚀 RUNNING FULL GLOBAL BAKE (S3 Enabled)")
-        print("⚠️  This will process ~30,000 TIFs and may take 12+ hours.")
-        print("⚠️  Memory usage can spike. Monitor system resources.")
+        print("⚠️  This will process ~3,486 TIFs and may take several hours.")
         S3_ENABLED = True
     else:
-        print(f"🧪 RUNNING MINI-BAKE (12x12 grid around Stubai, S3 Disabled)")
+        print(f"🧪 RUNNING MINI-BAKE ({grid_size}×{grid_size} grid, S3 Disabled)")
         S3_ENABLED = False
 
-    # --- CLEANUP (Sandbox-safe) ---
-    # In sandboxes, these dirs contain per-file symlinks to main repo.
-    # We must remove contents individually to avoid following symlinks.
-    dirs_to_wipe = ["frontend/app/tiles_bin", "frontend/app/aerial_tiles"]
-    print(f"🧹 Cleaning old baked data in {dirs_to_wipe}...")
-    for d in dirs_to_wipe:
-        if os.path.islink(d):
-            os.unlink(d)
-        elif os.path.exists(d):
-            for item in os.listdir(d):
-                item_path = os.path.join(d, item)
-                if os.path.isdir(item_path) and not os.path.islink(item_path):
-                    shutil.rmtree(item_path)
-                else:
-                    os.unlink(item_path)
-            shutil.rmtree(d)
+    # --- CLEANUP (Non-destructive) ---
+    dirs_to_ensure = ["frontend/app/tiles_bin", "frontend/app/aerial_tiles", 
+                      "frontend/app/aerial_tiles/full", "frontend/app/aerial_tiles/low"]
+    for d in dirs_to_ensure:
         os.makedirs(d, exist_ok=True)
 
-    print("Loading DEM...")
-    with rasterio.open(DEM_PATH) as dem:
-        dem_data = dem.read(1)
-        dem_transform = dem.transform 
-        dem_poly = box(*dem.bounds)
+    # --- OPEN DEM (not read into memory — windowed reads per sector) ---
+    print("Opening DEM...")
+    dem = rasterio.open(DEM_PATH)
+    dem_poly = box(*dem.bounds)
+    print(f"✅ DEM: {dem.width}×{dem.height}, bounds: {dem.bounds}")
 
     upsample = 2
-    grad_ds = get_or_create_gradient_map(DEM_PATH, GRADIENT_PATH, upsample_factor=upsample)
+    # Gradient map: deferred until we know the bake region (mini-bake generates a small one)
+    grad_ds = None
 
     valid_tifs = []
 
     # Calculate Bounds
     if args.full:
         print("Scanning ALL TIFs...")
-        valid_tifs = []
         for f in glob.glob(os.path.join(AERIAL_DIR, "*.tif")):
             try:
                 with rasterio.open(f) as src: valid_tifs.append({"path": f, "poly": box(*src.bounds)})
@@ -595,28 +700,54 @@ def main():
         max_sx, max_sy = coord_util.world_to_sector_id(all_max_x, all_max_y)
     else:
         # Mini-Bake Range
-        cx, cy = latlon_to_world_meters(STUBAI_LAT, STUBAI_LON)
-        csx, csy = coord_util.world_to_sector_id(cx, cy)
-        min_sx, max_sx = csx - 6, csx + 5
-        min_sy, max_sy = csy - 6, csy + 5
+        if args.center:
+            try:
+                csx, csy = map(int, args.center.split(","))
+                print(f"📍 Using custom center sector: ({csx}, {csy})")
+            except:
+                print(f"⚠️  Invalid center format '{args.center}'. Expected 'Q,R'. Falling back to Stubai.")
+                cx, cy = latlon_to_world_meters(STUBAI_LAT, STUBAI_LON)
+                csx, csy = coord_util.world_to_sector_id(cx, cy)
+        else:
+            cx, cy = latlon_to_world_meters(STUBAI_LAT, STUBAI_LON)
+            csx, csy = coord_util.world_to_sector_id(cx, cy)
+            print(f"📍 Using default Stubai center: ({csx}, {csy})")
+
+        half = grid_size // 2
+        min_sx, max_sx = csx - half, csx + half - 1
+        min_sy, max_sy = csy - half, csy + half - 1
         
         # Proper Bounding Box for the entire Mini-Bake Area
         m_x1, m_y1, _, _ = coord_util.sector_id_to_bounds_meters(min_sx, min_sy)
         _, _, m_x2, m_y2 = coord_util.sector_id_to_bounds_meters(max_sx, max_sy)
         mini_box = box(m_x1, m_y1, m_x2, m_y2)
 
-        # Only load intersecting TIFs for Stubai area
+        # Only load intersecting TIFs
         print("Filtering TIFs for Mini-Bake area...")
-        for f in glob.glob(os.path.join(AERIAL_DIR, "*.tif")):
+        tif_list = glob.glob(os.path.join(AERIAL_DIR, "*.tif"))
+        for f in tif_list:
             try:
-                # Quick check: only open if name hints at relevance or just open and check bounds
                 with rasterio.open(f) as src:
                     t_poly = box(*src.bounds)
                     if t_poly.intersects(mini_box):
                         valid_tifs.append({"path": f, "poly": t_poly})
             except: pass
+        print(f"✅ Found {len(valid_tifs)} intersecting TIFs (of {len(tif_list)} total).")
 
-    print(f"Sector Range: SX[{min_sx} to {max_sx}], SY[{min_sy} to {max_sy}] ({ (max_sx-min_sx+1)*(max_sy-min_sy+1) } total)")
+        # Generate a lightweight regional gradient (~150MB vs 14GB full cache)
+        grad_ds = generate_regional_gradient(
+            dem, (m_x1, m_y1, m_x2, m_y2), upsample_factor=upsample)
+
+    # For full bake, use the pre-computed full gradient cache
+    if grad_ds is None:
+        grad_ds = get_or_create_gradient_map(DEM_PATH, GRADIENT_PATH, upsample_factor=upsample)
+
+    total_sectors = (max_sx - min_sx + 1) * (max_sy - min_sy + 1)
+    print(f"Sector Range: SX[{min_sx}..{max_sx}], SY[{min_sy}..{max_sy}] ({total_sectors} sectors)")
+
+    bake_times = []
+    skipped = 0
+    total_bake_start = time.time()
 
     for sx in range(min_sx, max_sx + 1):
         for sy in range(min_sy, max_sy + 1):
@@ -624,10 +755,36 @@ def main():
             if dem_poly.intersects(sector_box):
                 has_imagery = any(t["poly"].intersects(sector_box) for t in valid_tifs)
                 if has_imagery:
+                    # Skip logic
+                    bin_file = f"frontend/app/tiles_bin/sector_{sx}_{sy}.bin"
+                    tex_file = f"frontend/app/aerial_tiles/full/sector_{sx}_{sy}.webp"
+                    if can_skip and os.path.exists(bin_file) and os.path.exists(tex_file):
+                        skipped += 1
+                        continue
+
+                    t0 = time.time()
                     print(f"Cooking Sector {sx}, {sy}...")
                     bake_sector_textures(sx, sy, valid_tifs)
-                    bake_sector_binary(sx, sy, dem_data, dem_transform, grad_ds)
+                    bake_sector_binary(sx, sy, dem, grad_ds)
+                    elapsed = time.time() - t0
+                    bake_times.append(elapsed)
+                    print(f"   ⏱️  {elapsed:.1f}s")
                     gc.collect()
+
+    total_elapsed = time.time() - total_bake_start
+    if bake_times:
+        avg = sum(bake_times) / len(bake_times)
+        print(f"\n📊 Bake Stats: {len(bake_times)} sectors in {total_elapsed:.1f}s "
+              f"(avg {avg:.1f}s/sector, skipped {skipped})")
+    elif skipped > 0:
+        print(f"\n⏩ All {skipped} sectors skipped (already baked with version {BAKER_VERSION}).")
+
+    dem.close()
+
+    # Update metadata
+    with open(METADATA_PATH, "w") as f:
+        json.dump({"baker_version": BAKER_VERSION, "last_bake": time.ctime(),
+                   "grid_size": grid_size, "sectors_baked": len(bake_times)}, f)
 
     generate_manifest.generate_manifest()
     # Upload manifest last
