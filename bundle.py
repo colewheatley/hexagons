@@ -24,7 +24,7 @@ import re
 REPO_ROOT = Path(__file__).resolve().parent
 
 PREAMBLE_FILE = "code_atlas.md"
-OUTPUT_DIR = REPO_ROOT / "outputs" / "markdowns"
+OUTPUT_DIR = REPO_ROOT
 
 # ── Blacklist ────────────────────────────────────────────────────────────────
 # Directories and extensions we DO NOT want to bundle
@@ -187,11 +187,7 @@ def main() -> None:
         else:
             print("  ⚠️  No files found for bundle.")
 
-    preamble_src = REPO_ROOT / PREAMBLE_FILE
-    if preamble_src.exists():
-        preamble_dst = OUTPUT_DIR / PREAMBLE_FILE
-        shutil.copy2(preamble_src, preamble_dst)
-        print(f"  📄  Copied {PREAMBLE_FILE} → {preamble_dst.relative_to(REPO_ROOT)}")
+
 
     print("Done.")
 
