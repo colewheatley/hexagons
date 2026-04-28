@@ -1,3 +1,421 @@
+# Hexagons — Code Bundle: backend
+#
+# Generated : 2026-04-28 14:04 UTC
+# Repo root : /Users/cole/dev/Hexagons
+# Files     : 7 included
+# Est tokens: ~12,087
+#
+# File list:
+#   hex_backend/coordinate_utility.py
+#   hex_backend/generate_manifest.py
+#   hex_backend/run_big_bake.sh
+#   hex_backend/run_lil_bake.sh
+#   hex_backend/test_gosper.py
+#   hex_backend/test_gosper_js.mjs
+#   hex_backend/waffle_iron.py
+#
+# ================================================================================
+
+
+# ================================================================================
+# FILE 1/7
+# Path: hex_backend/coordinate_utility.py
+# ================================================================================
+
+# @atlas: Core coordinate mathematics and projection logic. Defines fundamental unit hex constants (32px, 0.2m/px), sector bounds (1024x1024 or 4096px, 819.2m), and provides utilities for converting between universal unit axial (q, r) and world meters (x, y) with standard flat-top orientation support.
+import math
+import numpy as np
+
+# =============================================================================
+# PIXEL-FIRST CONSTANTS (UNIT-BASED)
+# =============================================================================
+UNIT_HEX_PX = 32.0           # Exactly 32 pixels flat-to-flat
+METERS_PER_PIXEL = 0.2       # The "Tirol Truth"
+
+# Scale Factors (Visual / LOD)
+UNIT_HEX_WIDTH_METERS = UNIT_HEX_PX * METERS_PER_PIXEL  # 6.4 meters exactly
+
+# SECTOR DEFINITION (Rectangular Bins)
+# User mentioned expecting 1024x1024.
+# If we want the "High Res" (1/4 scale) to be exactly 1024px:
+# 1024 * 4 = 4096 pixels for Full Res.
+# 4096 pixels * 0.2 m/pixel = 819.2 meters.
+SECTOR_SIZE_METERS = 819.2 
+SECTOR_PIXELS = 4096 # 819.2 / 0.2
+
+# Directions (Source of Truth: Flat Top, North Start, Clockwise)
+NORTH = 0      # +r (Axial 0, 1)
+NORTH_EAST = 1 # (Axial 1, 0)
+SOUTH_EAST = 2 # (Axial 1, -1)
+SOUTH = 3      # (Axial 0, -1)
+SOUTH_WEST = 4 # (Axial -1, 0)
+NORTH_WEST = 5 # (Axial -1, 1)
+
+def get_hex_dimensions():
+    """
+    Returns the calculated dimensions of the hexes based on pixel constants.
+    """
+    return {
+        'sector_width_m': SECTOR_SIZE_METERS,
+        'unit_hex_width_m': UNIT_HEX_WIDTH_METERS,
+        'unit_hex_radius_m': UNIT_HEX_WIDTH_METERS / math.sqrt(3),
+        'pixels_per_unit_hex': UNIT_HEX_PX,
+        'texture_size_px': SECTOR_PIXELS
+    }
+
+def axial_to_world_meters(q, r):
+    """
+    Converts Universal Unit Axial (q, r) to World Meters (x, y).
+    Standard Flat Top Orientation:
+    - q axis points ~East/South-East
+    - r axis points North
+    """
+    h = UNIT_HEX_WIDTH_METERS
+    world_x = (q * (math.sqrt(3)/2) * h)
+    world_y = (r * h + q * 0.5 * h)
+    return world_x, world_y
+    
+def world_meters_to_axial_approx(x, y):
+    """
+    Finds the nearest q,r for a given x,y.
+    """
+    h = UNIT_HEX_WIDTH_METERS
+    A = (math.sqrt(3)/2 * h)
+    q = x / A
+    r = (y - (q * 0.5 * h)) / h
+    return q, r 
+
+def world_meters_to_axial_scale(x, y, s):
+    """
+    Finds the nearest q,r for a given x,y at Scale s.
+    """
+    eff_h = UNIT_HEX_WIDTH_METERS * s
+    A = (math.sqrt(3)/2 * eff_h)
+    q = x / A
+    r = (y - (q * 0.5 * eff_h)) / eff_h
+    return q, r 
+
+def round_axial(q, r):
+    x_cube = q
+    z_cube = r
+    y_cube = -q - r
+    rx, ry, rz = round(x_cube), round(y_cube), round(z_cube)
+    x_diff, y_diff, z_diff = abs(rx - x_cube), abs(ry - y_cube), abs(rz - z_cube)
+    if x_diff > y_diff and x_diff > z_diff: rx = -ry - rz
+    elif y_diff > z_diff: ry = -rx - rz
+    else: rz = -rx - ry
+    return int(rx), int(rz)
+
+def world_to_sector_id(x, y):
+    sx = math.floor(x / SECTOR_SIZE_METERS)
+    sy = math.floor(y / SECTOR_SIZE_METERS)
+    return sx, sy
+
+def sector_id_to_bounds_meters(sx, sy):
+    min_x = sx * SECTOR_SIZE_METERS
+    min_y = sy * SECTOR_SIZE_METERS
+    max_x = min_x + SECTOR_SIZE_METERS
+    max_y = min_y + SECTOR_SIZE_METERS
+    return min_x, min_y, max_x, max_y
+
+def get_sector_center(sx, sy):
+    min_x, min_y, max_x, max_y = sector_id_to_bounds_meters(sx, sy)
+    return (min_x + max_x) * 0.5, (min_y + max_y) * 0.5
+
+def get_hexes_in_bbox(min_x, max_x, min_y, max_y, padding_m=0.0):
+    min_x -= padding_m
+    max_x += padding_m
+    min_y -= padding_m
+    max_y += padding_m
+    corners = [(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)]
+    qs, rs = [], []
+    for cx, cy in corners:
+        fq, fr = world_meters_to_axial_approx(cx, cy)
+        qs.append(fq); rs.append(fr)
+    for q in range(int(min(qs)) - 2, int(max(qs)) + 2):
+        for r in range(int(min(rs)) - 2, int(max(rs)) + 2):
+            wx, wy = axial_to_world_meters(q, r)
+            if min_x <= wx <= max_x and min_y <= wy <= max_y: yield (q, r)
+
+def get_lod_grid_hexes_in_bbox(min_x, max_x, min_y, max_y, scale_factor, padding_m=0.0):
+    eff_h = UNIT_HEX_WIDTH_METERS * scale_factor
+    A = (math.sqrt(3)/2 * eff_h)
+    
+    # STRICT BOUNDS: Do not use padding for Center Containment.
+    # Otherwise neighboring sectors generate the same hex multiple times (overlap).
+    # padding_m parameter is kept for signature compatibility but ignored for clipping.
+    
+    def to_prime(x, y):
+         q = x / A
+         r = (y - (q * 0.5 * eff_h)) / eff_h
+         return q, r
+    corners = [(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)]
+    qs, rs = [], []
+    for cx, cy in corners:
+        q, r = to_prime(cx, cy)
+        qs.append(q); rs.append(r)
+    found = []
+    
+    # Iterate a slightly wider integer range to catch edges, but strict clip on centers
+    for q in range(int(min(qs)) - 2, int(max(qs)) + 2):
+        for r in range(int(min(rs)) - 2, int(max(rs)) + 2):
+            wx = q * dx_dq_scaled(scale_factor)
+            wy = r * dy_dr_scaled(scale_factor) + q * dy_dq_scaled(scale_factor)
+            
+            # STRICT Check against Sector Bounds
+            # Use < max to ensure exclusive upper bound (prevent double ownership at exact boundary)
+            if min_x <= wx < max_x and min_y <= wy < max_y:
+                found.append((q, r, wx, wy))
+    return found
+
+def dx_dq_scaled(s): return (math.sqrt(3)/2) * (UNIT_HEX_WIDTH_METERS * s)
+def dy_dq_scaled(s): return 0.5 * (UNIT_HEX_WIDTH_METERS * s)
+def dy_dr_scaled(s): return UNIT_HEX_WIDTH_METERS * s
+
+
+# ================================================================================
+# FILE 2/7
+# Path: hex_backend/generate_manifest.py
+# ================================================================================
+
+# @atlas: Tile manifest generator. Scans the frontend's binary tiles directory for baked rectangular map sectors (.bin files) and compiles their coordinates and bounding boxes into a tile_manifest.json file to be consumed by the frontend engine for dynamic LOD loading.
+import os
+import json
+import re
+import sys
+import coordinate_utility as coord_util
+
+# CONFIG
+BINARY_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/app/tiles_bin"))
+OUTPUT_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "../frontend/app/tile_manifest.json"))
+
+def generate_manifest():
+    print(f"🔍 Manifest Generator looking in: {BINARY_DIR}")
+    
+    if not os.path.exists(BINARY_DIR):
+        print("❌ Error: Binary directory not found.")
+        return
+
+    files = os.listdir(BINARY_DIR)
+    sectors = []
+    
+    # Pattern: sector_SX_SY.bin
+    pattern = re.compile(r'sector_(-?\d+)_(-?\d+)\.bin')
+    
+    min_x = float('inf')
+    min_y = float('inf')
+    max_x = float('-inf')
+    max_y = float('-inf')
+    
+    for f in files:
+        match = pattern.match(f)
+        if match:
+            # Parse SX, SY
+            SX = int(match.group(1))
+            SY = int(match.group(2))
+            
+            # Convert to World Center
+            cx, cy = coord_util.get_sector_center(SX, SY)
+            
+            # Append to list
+            # We map sx->q, sy->r for compatibility with frontend structure
+            sectors.append({
+                'q': SX,
+                'r': SY,
+                'x': cx,
+                'y': cy
+            })
+            
+            if cx < min_x: min_x = cx
+            if cx > max_x: max_x = cx
+            if cy < min_y: min_y = cy
+            if cy > max_y: max_y = cy
+            
+    # Calculate approx bounds size for camera
+    margin = 2000.0
+    
+    # Handle empty case
+    if min_x == float('inf'):
+        min_x = 0
+        max_x = 0
+        min_y = 0
+        max_y = 0
+            
+    manifest = {
+        'tiles': sectors, 
+        'type': 'sector_rect',
+        'bounds': {
+            'min_x': min_x - margin,
+            'max_x': max_x + margin,
+            'min_y': min_y - margin,
+            'max_y': max_y + margin
+        },
+        'sector_size_m': coord_util.SECTOR_SIZE_METERS
+    }
+    
+    with open(OUTPUT_FILE, 'w') as f:
+        json.dump(manifest, f, indent=4)
+        
+    print(f"✅ Generated manifest for {len(sectors)} rectangular sectors.")
+    print(f"   Bounds: X[{min_x:.0f}, {max_x:.0f}], Y[{min_y:.0f}, {max_y:.0f}]")
+    print(f"   Saved to: {OUTPUT_FILE}")
+
+if __name__ == "__main__":
+    generate_manifest()
+
+
+# ================================================================================
+# FILE 3/7
+# Path: hex_backend/run_big_bake.sh
+# ================================================================================
+
+#!/bin/bash
+# @atlas: Orchestration script for the 'Overnight Super-Bake'. Executes the full geographic expansion via waffle_iron.py and synchronizes the resulting baked binary tiles and textures to the live S3 bucket (wheatley.cloud).
+# 🧇 Waffle Iron Overnight Super-Bake & S3 Sync
+# This script runs the full geographic expansion and uploads tiles live to wheatley.cloud
+
+# Ensure we are in the project root
+cd "$(dirname "$0")/.."
+
+echo "--------------------------------------------------"
+echo "🚀 Starting PowFinder Global Bake & S3 Sync"
+echo "Bucket: wheatley.cloud"
+echo "Time: $(date)"
+echo "--------------------------------------------------"
+
+# Check for AWS CLI
+if ! command -v aws &> /dev/null; then
+    echo "❌ Error: AWS CLI not found. Please install it first."
+    exit 1
+fi
+
+# Run the bake
+# We use stdbuf to ensure python output isn't buffered so we can tail the log
+python3 -u hex_backend/waffle_iron.py --full 2>&1 | tee bake_log_$(date +%Y%m%d_%H%M%S).log
+
+echo "--------------------------------------------------"
+echo "✅ Bake Complete."
+echo "Check the log file for details."
+echo "--------------------------------------------------"
+
+
+# ================================================================================
+# FILE 4/7
+# Path: hex_backend/run_lil_bake.sh
+# ================================================================================
+
+#!/bin/bash
+# @atlas: Orchestration script for rapid iteration local testing. Triggers a small-scale (e.g. 12x12 grid) 'Mini-Bake' focused around Stubai using waffle_iron.py, specifically disabling S3 synchronization to allow for quick frontend layout and texture tuning.
+# 🧇 Waffle Iron - Rapid Iteration Bake
+# This script runs the default Mini-Bake logic (12x12 grid around Stubai)
+# This is fast (~2-3 mins) and ideal for layout/texture testing.
+
+# Ensure we are in the project root
+cd "$(dirname "$0")/.."
+
+echo "--------------------------------------------------"
+echo "🧪 Starting PowFinder MINI-BAKE (Stubai 12x12)"
+echo "Mode: Rapid Iteration"
+echo "S3 Sync: DISABLED (Local Only)"
+echo "Time: $(date)"
+echo "--------------------------------------------------"
+
+# Run the bake (passes through args like --center or --force)
+python3 -u hex_backend/waffle_iron.py "$@" 2>&1 | tee lil_bake_$(date +%Y%m%d_%H%M%S).log
+
+echo "--------------------------------------------------"
+echo "✅ Mini-Bake Complete."
+echo "Map is ready for local testing in frontend/app/."
+echo "--------------------------------------------------"
+
+
+# ================================================================================
+# FILE 5/7
+# Path: hex_backend/test_gosper.py
+# ================================================================================
+
+#!/usr/bin/env python3
+# @atlas: Command-line diagnostic script. Generates and prints Gosper curve coordinate offsets (specifically at recursion Level 5) by invoking the Python coordinate_utility matrix math. Crucial for verifying that the backend spatial logic matches the frontend visualization exactly.
+"""Quick test to print Gosper offsets for comparison with JavaScript."""
+
+import coordinate_utility as coord_util
+
+if __name__ == "__main__":
+    print("Generating Gosper offsets at Level 5...")
+    offsets = coord_util.generate_gosper_offsets(5, debug=True)
+    print(f"\nDone. Generated {len(offsets)} offsets.")
+
+
+# ================================================================================
+# FILE 6/7
+# Path: hex_backend/test_gosper_js.mjs
+# ================================================================================
+
+// @atlas: Node.js diagnostic script that mirrors the Python backend's recursive Gosper curve generator. Simulates the specific 7-neighbor matrix shifting algorithms up to Level 5, allowing developers to diff the generated offsets against the Python output and ensure the hex rendering grid aligns flawlessly.
+// Quick test to verify JavaScript Gosper offsets match Python
+
+function generateGosperOffsets(level) {
+    if (level === 0) return [{ q: 0, r: 0 }];
+
+    const prevOffsets = generateGosperOffsets(level - 1);
+
+    const applyMatrixPower = (q, r, power) => {
+        for (let i = 0; i < power; i++) {
+            const nq = 2 * q + 1 * r;
+            const nr = -1 * q + 3 * r;
+            q = nq;
+            r = nr;
+        }
+        return { q, r };
+    };
+
+    // MUST match Python exactly
+    const neighbors = [
+        { q: 0, r: 0 },
+        { q: 1, r: 0 },
+        { q: 1, r: -1 },
+        { q: 0, r: -1 },
+        { q: -1, r: 0 },
+        { q: -1, r: 1 },
+        { q: 0, r: 1 }
+    ];
+
+    const finalList = [];
+
+    for (let i = 0; i < 7; i++) {
+        const baseShift = neighbors[i];
+        const shift = applyMatrixPower(baseShift.q, baseShift.r, level - 1);
+
+        if (level === 5) {
+            console.log(`Level ${level}, neighbor ${i}: base(${baseShift.q},${baseShift.r}) -> shift(${shift.q},${shift.r})`);
+        }
+
+        for (const p of prevOffsets) {
+            finalList.push({
+                q: p.q + shift.q,
+                r: p.r + shift.r
+            });
+        }
+    }
+
+    return finalList;
+}
+
+console.log("=== JAVASCRIPT GOSPER OFFSET TEST ===\n");
+const offsets = generateGosperOffsets(5);
+
+console.log("\n=== JAVASCRIPT GOSPER OFFSET DEBUG ===");
+console.log("First 7 offsets:", offsets.slice(0, 7).map(o => `(${o.q},${o.r})`).join(", "));
+console.log("Offsets 2401-2407:", offsets.slice(2401, 2408).map(o => `(${o.q},${o.r})`).join(", "));
+console.log("Last 7 offsets:", offsets.slice(-7).map(o => `(${o.q},${o.r})`).join(", "));
+console.log("Total offsets:", offsets.length);
+
+
+# ================================================================================
+# FILE 7/7
+# Path: hex_backend/waffle_iron.py
+# ================================================================================
+
 # @atlas: The central terrain baking pipeline ('Waffle Iron' v4.1). Ingests large EPSG:31254 DEMs and high-res orthophotos (TIFs). It processes these into a proprietary 16-byte 'Uber-Hex' binary structure (.bin) featuring delta compression, 'Diamond' slope area sampling, and packed lighting normals. Simultaneously generates and uploads padded webp tiles (full and low-res LODs) to S3, using incremental caching to prevent redundant bakes.
 # 🧇 Waffle Iron v4.1 - Incremental Bake Edition
 # =============================================================================

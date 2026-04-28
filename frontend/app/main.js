@@ -1,6 +1,9 @@
+// @atlas: The core 'PistonViewer' Three.js orchestrator. Manages the 60fps render loop, MapControls interaction, and instanced mesh generation. Uses a strict state machine (MOVING vs SINTERING) to preserve frame budgets while asynchronously dispatching Web Workers to decode and inject new 'HEX4' binary terrain tiles.
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { HexSearch } from './search.js';
+import { VRAMLedger } from './vram_ledger.js';
+import { CacheManager } from './cache_manager.js';
 
 // --- ENGINE STATE MACHINE & PERFORMANCE MONITORING ---
 const APP_VERSION = 'v0.8.0';
@@ -61,7 +64,7 @@ class PistonViewer {
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 10, 50000);
         this.camera.position.set(0, 800, 0);
 
-        this.renderer = new THREE.WebGLRenderer({ antialias: true });
+        this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.container.appendChild(this.renderer.domElement);
@@ -208,6 +211,10 @@ class PistonViewer {
         this.pendingJobs = new Map(); // ID -> {resolve, reject}
         this.jobIdCounter = 0;
         this.initWorkers();
+
+        // --- INFRASTRUCTURE: Telemetry & Cache Authority ---
+        this.vramLedger = new VRAMLedger();
+        this.cacheManager = new CacheManager(this.vramLedger);
 
         this.initWorld();
         this.animate();
@@ -563,14 +570,25 @@ class PistonViewer {
             const stubaiSector = worldToSectorID(stubaiBuildingsX, stubaiBuildingsY);
             const stubaiKey = `${stubaiSector.Q}_${stubaiSector.R}`;
 
+            // Secondary: Ski tour area near Kühtai (47.1338°N, 11.5965°E)
+            const skiTourX = 95855.9;
+            const skiTourY = 222423.2;
+            const skiTourSector = worldToSectorID(skiTourX, skiTourY);
+            const skiTourKey = `${skiTourSector.Q}_${skiTourSector.R}`;
+
             let startX, startZ;
             if (this.manifestGrid.has(stubaiKey)) {
                 // Stubai is in the baked area - use it
                 startX = stubaiBuildingsX - this.worldOrigin.x;
                 startZ = -(stubaiBuildingsY - this.worldOrigin.y);
 
+            } else if (this.manifestGrid.has(skiTourKey)) {
+                // Ski tour area is baked - use it
+                startX = skiTourX - this.worldOrigin.x;
+                startZ = -(skiTourY - this.worldOrigin.y);
+
             } else {
-                // Stubai not baked - fall back to manifest center
+                // Fall back to manifest center
                 const cenX = (this.manifest.bounds.min_x + this.manifest.bounds.max_x) * 0.5;
                 const cenY = (this.manifest.bounds.min_y + this.manifest.bounds.max_y) * 0.5;
                 startX = cenX - this.worldOrigin.x;
@@ -1105,8 +1123,14 @@ class PistonViewer {
     }
 
     processQueues() {
-        // 1. Fill Worker Slots (Concurrency)
         const maxConcurrent = this.workers.length;
+        const ESTIMATED_TILE_VRAM = 300 * 1024; // ~300 KB geometry + low-res texture
+
+        this.cacheManager.beginTurn();
+
+        // Sort closest-first so the LRU swap logic can break early:
+        // if the closest new tile isn't worth swapping, nothing behind it is either.
+        this.loadQueue.sort((a, b) => a.t.d - b.t.d);
 
         while (this.activeWorkerCount < maxConcurrent && this.loadQueue.length > 0) {
             const task = this.loadQueue.shift();
@@ -1118,6 +1142,38 @@ class PistonViewer {
                 continue;
             }
 
+            // --- LRU CACHE LOGIC ---
+            if (!this.cacheManager.canAllocate(ESTIMATED_TILE_VRAM)) {
+                // Budget is full. Only load if this tile is more valuable
+                // than the worst loaded tile (distance + frustum check).
+                this.projScreenMatrix.multiplyMatrices(
+                    this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+                this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
+
+                const swapped = this.cacheManager.requestSwap(
+                    task.t.d,
+                    this.camera.position,
+                    this.frustum,
+                    this.tiles,
+                    this.unloadTile.bind(this)
+                );
+
+                if (!swapped) {
+                    // What we have is already optimal. Drain the rest of the
+                    // queue — since it's sorted closest-first, nothing behind
+                    // this tile can swap either.
+                    this.loadingTiles.delete(key);
+                    for (const remaining of this.loadQueue) {
+                        this.loadingTiles.delete(`${remaining.t.q}_${remaining.t.r}`);
+                    }
+                    this.loadQueue.length = 0;
+                    break;
+                }
+            }
+
+            // Record download (flags re-downloads of previously evicted tiles)
+            this.cacheManager.recordDownload(key);
+
             this.activeWorkerCount++;
             this.fetchTileOnWorker(task).then(result => {
                 this.activeWorkerCount--;
@@ -1126,24 +1182,50 @@ class PistonViewer {
             });
         }
 
-        // 2. Upgrades (Lower Priority, use remaining slots?)
-        // Skip upgrades during 3D movement - only do them when settled/sintering
-        // For now, let's keep upgrades separate or allow them if loadQueue is empty.
-        // Let's just allow upgrades if we have free slots.
+        // 2. Texture Upgrades (Lower Priority)
+        // A full-res 4224×4224 RGBA texture is ~67 MB — must pre-gate.
+        const ESTIMATED_FULL_TEX_VRAM = 67 * 1024 * 1024;
+
         if (!this.isMoving3D && this.activeWorkerCount < maxConcurrent && this.loadQueue.length === 0 && this.upgradeQueue.length > 0) {
             const tile = this.upgradeQueue.shift();
             tile.queuedForUpgrade = false;
-            // ... (Upgrade logic remains similar or can be workerized too)
-            // For texture upgrade, it's fast on worker, but we need to limit main thread impact too?
-            // Existing upgradeTexture uses postWorkerJob.
+            const tileKey = `${tile.q}_${tile.r}`;
 
-            // We can just call it, but track active count.
+            // Budget check for texture upgrade
+            if (!this.cacheManager.canAllocate(ESTIMATED_FULL_TEX_VRAM)) {
+                this.projScreenMatrix.multiplyMatrices(
+                    this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+                this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
+
+                // Try up to 3 swaps to free enough for the ~67 MB texture
+                let attempts = 0;
+                while (!this.cacheManager.canAllocate(ESTIMATED_FULL_TEX_VRAM) && attempts < 3) {
+                    const swapped = this.cacheManager.requestSwap(
+                        Infinity, // only evict out-of-frustum tiles for tex upgrades
+                        this.camera.position,
+                        this.frustum,
+                        this.tiles,
+                        this.unloadTile.bind(this),
+                        tileKey // don't evict the tile we're upgrading
+                    );
+                    if (!swapped) break;
+                    attempts++;
+                }
+
+                if (!this.cacheManager.canAllocate(ESTIMATED_FULL_TEX_VRAM)) {
+                    this.cacheManager.endTurn();
+                    return; // Will retry next frame
+                }
+            }
+
             this.activeWorkerCount++;
             this.upgradeTexture(tile).finally(() => {
                 this.activeWorkerCount--;
                 this.processQueues();
             });
         }
+
+        this.cacheManager.endTurn();
     }
 
     async fetchTileOnWorker(task) {
@@ -1192,6 +1274,11 @@ class PistonViewer {
 
         // Final Hygiene Check (Camera might have moved while worker was working)
         if (this.tiles.has(key)) return;
+
+        // --- LEDGER: Track network payload from worker response ---
+        if (workerData.networkBytes) {
+            this.vramLedger.addNetworkPayload(key, workerData.networkBytes);
+        }
 
         try {
             // 1. Texture Strategy (One texture per tile)
@@ -1321,6 +1408,19 @@ class PistonViewer {
             this.tiles.set(key, tileObj);
             this.updateGlobalStats(workerData.stats);
 
+            // --- LEDGER: Register tile's GPU footprint ---
+            // Geometry bytes pre-computed on worker thread (Graft 3)
+            const geometryBytes = workerData.geometryBytes || 0;
+            // Texture: low-res bitmap (worker returns ImageBitmap → CanvasTexture)
+            let textureBytes = 0;
+            if (workerData.texture && workerData.texture.width) {
+                textureBytes = workerData.texture.width * workerData.texture.height * 4;
+            }
+            this.vramLedger.register(key, {
+                geometryBytes, textureBytes,
+                q: t.q, r: t.r, lx: t.lx, lz: t.lz,
+            });
+
             if (loadFullTexNow && !tileObj.isFullTex && !tileObj.loadingTex && !tileObj.queuedForUpgrade) {
                 tileObj.queuedForUpgrade = true;
                 this.upgradeQueue.push(tileObj);
@@ -1375,11 +1475,17 @@ class PistonViewer {
 
     async upgradeTexture(tile) {
         tile.loadingTex = true;
+        const key = `${tile.q}_${tile.r}`;
         const url = `aerial_tiles/full/sector_${tile.q}_${tile.r}.webp`;
         try {
             const texStart = performance.now();
             const result = await this.postWorkerJob('LOAD_TEXTURE', { url });
             const texLoadTime = performance.now() - texStart;
+
+            // --- LEDGER: Track upgraded texture network payload ---
+            if (result.networkBytes) {
+                this.vramLedger.addNetworkPayload(key, { bin: 0, tex: result.networkBytes });
+            }
 
             const fullTex = new THREE.CanvasTexture(result.bitmap);
             fullTex.colorSpace = THREE.SRGBColorSpace;
@@ -1387,14 +1493,20 @@ class PistonViewer {
 
             const assignStart = performance.now();
 
+            // --- INCINERATOR: Dispose old low-res texture before replacing ---
+            if (tile.material.map && tile.material.map !== fullTex) {
+                tile.material.map.dispose();
+            }
+
             // ASSIGN TO MAIN MATERIAL
             tile.material.map = fullTex;
             tile.material.needsUpdate = true;
 
-            // ASSIGN TO ALL CLONED MATERIALS
+            // ASSIGN TO ALL CLONED MATERIALS (old map refs disposed via main material above)
             let clonedCount = 0;
             if (tile.clonedMaterials) {
                 tile.clonedMaterials.forEach(m => {
+                    // Clones share the same texture instance, no need to dispose each
                     m.map = fullTex;
                     m.needsUpdate = true;
                     clonedCount++;
@@ -1402,6 +1514,10 @@ class PistonViewer {
             }
 
             const assignTime = performance.now() - assignStart; // Measure ENTIRE assignment block in ms
+
+            // --- LEDGER: Update texture VRAM (old low-res → new full-res) ---
+            const newTexBytes = result.bitmap.width * result.bitmap.height * 4;
+            this.vramLedger.updateTexture(key, newTexBytes);
 
             tile.isFullTex = true;
 
@@ -1436,35 +1552,86 @@ class PistonViewer {
         const tile = this.tiles.get(key);
         if (!tile) return;
 
-        // Remove from scene using the container (parent of both flat and 3D)
-        if (tile.container) this.scene.remove(tile.container);
+        // --- INCINERATOR: Rigorous GPU Disposal Pipeline ---
+        this._disposeTileGPU(tile);
 
-        if (tile.mesh.isGroup) {
-            // Remove from update loop
-            if (tile.clonedMaterials) {
-                tile.clonedMaterials.forEach(m => {
-                    this.materialsToUpdate.delete(m);
-                    m.dispose();
-                });
-            }
-        }
-
-        // Deep Cleanup of Stacked Group
-        tile.mesh.traverse(obj => {
-            if (obj.isMesh) {
-                if (obj.geometry) obj.geometry.dispose();
-                if (obj.material && obj.material.userData && obj.material.userData.isClone) {
-                    obj.material.dispose();
-                }
-            }
-        });
-
-        if (tile.flatMesh.geometry) tile.flatMesh.geometry.dispose();
-        if (tile.material.map) tile.material.map.dispose();
-        tile.material.dispose();
+        // --- LEDGER: Deregister VRAM tracking ---
+        this.vramLedger.deregister(key);
 
         this.tiles.delete(key);
         this.loadingTiles.delete(key);
+    }
+
+    /**
+     * THE INCINERATOR — Rigorous GPU resource teardown.
+     * Explicitly disposes all WebGL resources (BufferGeometry, Material, Texture)
+     * and nullifies references to force immediate GPU memory release.
+     * @param {object} tile - Tile object from this.tiles
+     */
+    _disposeTileGPU(tile) {
+        // 1. Remove from scene FIRST (prevents any further draws)
+        if (tile.container) this.scene.remove(tile.container);
+
+        // 2. Deep-traverse all 3D meshes — dispose geometry, materials, textures
+        if (tile.mesh) {
+            tile.mesh.traverse(obj => {
+                if (obj.isMesh) {
+                    if (obj.geometry) {
+                        obj.geometry.dispose();
+                    }
+                    // Array-safe material disposal (Graft 2)
+                    const materials = obj.material
+                        ? (Array.isArray(obj.material) ? obj.material : [obj.material])
+                        : [];
+                    for (const mat of materials) {
+                        if (mat.map) { mat.map.dispose(); mat.map = null; }
+                        this.materialsToUpdate.delete(mat);
+                        mat.dispose();
+                    }
+                }
+            });
+        }
+
+        // 3. Flat mesh
+        if (tile.flatMesh) {
+            if (tile.flatMesh.geometry) tile.flatMesh.geometry.dispose();
+            if (tile.flatMesh.material) {
+                if (tile.flatMesh.material.map) {
+                    tile.flatMesh.material.map.dispose();
+                    tile.flatMesh.material.map = null;
+                }
+                this.materialsToUpdate.delete(tile.flatMesh.material);
+                tile.flatMesh.material.dispose();
+            }
+        }
+
+        // 4. Shared material (may have its own texture ref)
+        if (tile.material) {
+            if (tile.material.map) {
+                tile.material.map.dispose();
+                tile.material.map = null;
+            }
+            this.materialsToUpdate.delete(tile.material);
+            tile.material.dispose();
+        }
+
+        // 5. Cloned materials list (catch any stragglers not in traversal)
+        if (tile.clonedMaterials) {
+            tile.clonedMaterials.forEach(m => {
+                this.materialsToUpdate.delete(m);
+                if (m.map) { m.map.dispose(); m.map = null; }
+                m.dispose();
+            });
+        }
+
+        // 6. Nullify all references to assist GC
+        tile.mesh = null;
+        tile.flatMesh = null;
+        tile.material = null;
+        tile.clonedMaterials = null;
+        tile.container = null;
+        tile.lods = null;
+        tile.hexDataLayers = null;
     }
 
     hideLoader() {
@@ -1698,18 +1865,110 @@ class PistonViewer {
         return ENGINE_STATES.STATIC;
     }
 
-    // --- MEMORY / STATE REPORT (consumed by Playwright profiler via [MEMORY_REPORT]) ---
-    getDetailedStats(phase) {
+    // --- PORCELAIN OUTPUT: Machine-readable stats API for Playwright / automation ---
+    getDetailedStats(phase = 'snapshot') {
+        // Compute spatial breakdown (The Radar)
+        this.projScreenMatrix.multiplyMatrices(
+            this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+        this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
+        const spatial = this.vramLedger.getSpatialBreakdown(
+            this.frustum, this.camera.position, this.tiles);
+
+        const fmt = (b) => {
+            if (b < 1024) return `${b} B`;
+            if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`;
+            if (b < 1073741824) return `${(b / 1048576).toFixed(1)} MB`;
+            return `${(b / 1073741824).toFixed(2)} GB`;
+        };
+
+        const _classVec = new THREE.Vector3();
+        const renderDist = this.renderSettings.renderDistance;
+        let visCount = 0, bufCount = 0, vesCount = 0;
+        let visBytes = 0, bufBytes = 0, vesBytes = 0;
+        let visFull = 0, visLow = 0, bufFull = 0, bufLow = 0, vesFull = 0, vesLow = 0;
+
+        for (const [key, tile] of this.tiles) {
+            const entry = this.vramLedger.entries.get(key);
+            const bytes = entry ? (entry.geometryBytes + entry.textureBytes) : 0;
+            const inFrustum = tile.bounds && this.frustum.intersectsBox(tile.bounds);
+            const isFull = !!tile.isFullTex;
+
+            if (inFrustum) {
+                visCount++; visBytes += bytes;
+                if (isFull) visFull++; else visLow++;
+            } else {
+                _classVec.set(entry?.lx || 0, 0, entry?.lz || 0);
+                const dist = _classVec.distanceTo(this.camera.position);
+                if (dist <= renderDist) {
+                    bufCount++; bufBytes += bytes;
+                    if (isFull) bufFull++; else bufLow++;
+                } else {
+                    vesCount++; vesBytes += bytes;
+                    if (isFull) vesFull++; else vesLow++;
+                }
+            }
+        }
+
         return {
             phase,
+            timestamp: performance.now(),
             engineState: this.engineState,
-            tileCount: this.tiles.size,
-            loadQueue: this.loadQueue.length,
-            sinterQueue: this.sinterQueue.length,
-            upgradeQueue: this.upgradeQueue.length,
-            activeWorkers: this.activeWorkerCount,
-            materialsTracked: this.materialsToUpdate.size,
-            violationCount: this._perfViolationCount
+            activeTileCount: this.tiles.size,
+            tileClassification: {
+                visible: { count: visCount, full: visFull, low: visLow, vram: fmt(visBytes), bytes: visBytes },
+                buffer: { count: bufCount, full: bufFull, low: bufLow, vram: fmt(bufBytes), bytes: bufBytes },
+                vestigial: { count: vesCount, full: vesFull, low: vesLow, vram: fmt(vesBytes), bytes: vesBytes },
+            },
+            vram: {
+                geometryBytes: this.vramLedger.totalGeometryBytes,
+                textureBytes: this.vramLedger.totalTextureBytes,
+                totalBytes: this.vramLedger.totalVRAMBytes,
+                budgetBytes: this.cacheManager.budget,
+                budgetUtilization: +(this.cacheManager.utilization).toFixed(4),
+                // Human-readable
+                geometry: fmt(this.vramLedger.totalGeometryBytes),
+                textures: fmt(this.vramLedger.totalTextureBytes),
+                total: fmt(this.vramLedger.totalVRAMBytes),
+                budget: fmt(this.cacheManager.budget),
+                headroom: fmt(this.cacheManager.headroom),
+            },
+            network: {
+                totalPayloadBytes: this.vramLedger.totalNetworkBytes,
+                binBytes: this.vramLedger._networkBin,
+                texBytes: this.vramLedger._networkTex,
+                // Human-readable
+                total: fmt(this.vramLedger.totalNetworkBytes),
+                bin: fmt(this.vramLedger._networkBin),
+                tex: fmt(this.vramLedger._networkTex),
+            },
+            spatial: {
+                inFrustumBytes: spatial.inFrustumBytes,
+                outFrustumBytes: spatial.outFrustumBytes,
+                nearBytes: spatial.nearBytes,
+                midBytes: spatial.midBytes,
+                farBytes: spatial.farBytes,
+                inFrustumTiles: spatial.tileBreakdown.inFrustum,
+                outFrustumTiles: spatial.tileBreakdown.outFrustum,
+                // Human-readable
+                inFrustum: `${spatial.tileBreakdown.inFrustum} tiles (${fmt(spatial.inFrustumBytes)})`,
+                outFrustum: `${spatial.tileBreakdown.outFrustum} tiles (${fmt(spatial.outFrustumBytes)})`,
+                near: fmt(spatial.nearBytes),
+                mid: fmt(spatial.midBytes),
+                far: fmt(spatial.farBytes),
+            },
+            tiles: {
+                loaded: this.tiles.size,
+                loadQueue: this.loadQueue.length,
+                upgradeQueue: this.upgradeQueue.length,
+                sinterQueue: this.sinterQueue.length,
+                activeWorkers: this.activeWorkerCount,
+                materialsTracked: this.materialsToUpdate.size,
+                evictedTotal: this.cacheManager.evictionCount,
+                evictedBytes: fmt(this.cacheManager.evictedBytes),
+                redownloads: this.cacheManager.redownloadCount,
+            },
+            violations: this._perfViolationCount,
+            allocationCount: this.vramLedger.entries.size,
         };
     }
 

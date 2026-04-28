@@ -1,5 +1,5 @@
 #!/bin/bash
-
+# @atlas: Orchestration script for the 'Overnight Super-Bake'. Executes the full geographic expansion via waffle_iron.py and synchronizes the resulting baked binary tiles and textures to the live S3 bucket (wheatley.cloud).
 # 🧇 Waffle Iron Overnight Super-Bake & S3 Sync
 # This script runs the full geographic expansion and uploads tiles live to wheatley.cloud
 

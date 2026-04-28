@@ -1,3 +1,4 @@
+# @atlas: Core coordinate mathematics and projection logic. Defines fundamental unit hex constants (32px, 0.2m/px), sector bounds (1024x1024 or 4096px, 819.2m), and provides utilities for converting between universal unit axial (q, r) and world meters (x, y) with standard flat-top orientation support.
 import math
 import numpy as np
 

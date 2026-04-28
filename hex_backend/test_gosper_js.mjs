@@ -1,3 +1,4 @@
+// @atlas: Node.js diagnostic script that mirrors the Python backend's recursive Gosper curve generator. Simulates the specific 7-neighbor matrix shifting algorithms up to Level 5, allowing developers to diff the generated offsets against the Python output and ensure the hex rendering grid aligns flawlessly.
 // Quick test to verify JavaScript Gosper offsets match Python
 
 function generateGosperOffsets(level) {

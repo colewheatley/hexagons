@@ -1,4 +1,4 @@
-
+// @atlas: Asynchronous background Web Worker dedicated to parsing 'HEX4' binary tiles. It handles network fetching, decodes the 16-byte packed structs (heights, slopes, deltas, packed normals), constructs Float32Array mesh buffers for instanced rendering, and passes them back via zero-copy transferables.
 const SECTOR_WIDTH_METERS = 819.2;
 const UNIT_HEX_PX = 32.0;
 const METERS_PER_PIXEL = 0.2;

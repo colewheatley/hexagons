@@ -1,3 +1,4 @@
+# @atlas: Tile manifest generator. Scans the frontend's binary tiles directory for baked rectangular map sectors (.bin files) and compiles their coordinates and bounding boxes into a tile_manifest.json file to be consumed by the frontend engine for dynamic LOD loading.
 import os
 import json
 import re

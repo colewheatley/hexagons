@@ -1,4 +1,4 @@
-
+// @atlas: The 'HexSearch' module. A UI component that lazy-loads GeoJSON data for Tirol peaks and ski resorts, providing an interactive search interface. It translates geographic coordinates to local PistonViewer space and safely rejects flights to destinations lying outside the currently baked map bounds.
 import { initProjection, latLonToWorld } from './coordinate_utility.js';
 
 export class HexSearch {

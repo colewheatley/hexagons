@@ -1,5 +1,4 @@
-
-
+<!-- @atlas: Unfiltered engineering devlog and post-mortem tracker. Specifically captures raw console logs of historical rendering bottlenecks, such as the 'V3 Binary South-Push' matrix assignment latency when initializing 7,000+ hexes, serving as a historical record of architectural missteps and fixes. -->
 --- NEW SESSION --- 8:50:56 PM
 [LOG] Initializing PistonViewer...
 [LOG] Starting init...

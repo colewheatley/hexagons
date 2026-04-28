@@ -1,4 +1,4 @@
-
+// @atlas: The 'LODController' spatial indexing module. Evaluates and benchmarks different frustum culling strategies—implementing QuadTree bounding structures alongside linear scanning and GridHash algorithms. Vital for ensuring O(log N) or better performance when querying visibility for millions of instanced hexagons.
 // LOD Controller (Hybrid System + Benchmark)
 // Implements three search strategies for comparison:
 // 1. QuadTree: Standard spatial index (O(log N))

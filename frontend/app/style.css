@@ -1,3 +1,4 @@
+/* @atlas: The central stylesheet for the 'Bestagon' Viewer application. Uses raw CSS to implement a modern, glassmorphic visual identity featuring translucent HUD panels, custom WebKit scrollbars, dynamic SVG animation keyframes, and responsive media queries for the performance telemetry overlay. */
 * {
     margin: 0;
     padding: 0;
