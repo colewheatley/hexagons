@@ -43,6 +43,8 @@ const FREIGER_SECTOR_BOUNDS = { minQ: 76, maxQ: 82, minR: 246, maxR: 255 };
 const FREIGER_CENTER = { x: 65000, y: 205500 };
 const FREIGER_ROUTE_URL = 'assets/freiger_ascent.geojson';
 const ROUTE_OVERLAY_Y = 42;
+const ROUTE_LOW_COLOR = 0x74b9ff;
+const ROUTE_HIGH_COLOR = 0xff6b9d;
 const FLOOR_MODE = 'view-min';
 const LOCK_FLOOR_ON_RISE = true;
 const FLOOR_LOCK_THRESHOLD = 0.02;
@@ -585,9 +587,9 @@ class PistonViewer {
             layer.add(halo);
 
             const ribbon = new THREE.Mesh(
-                this.createRouteRibbonGeometry(points, 9),
+                this.createRouteRibbonGeometry(points, 9, true),
                 new THREE.MeshBasicMaterial({
-                    color: 0xffd45a,
+                    vertexColors: true,
                     transparent: true,
                     opacity: 0.96,
                     depthTest: false,
@@ -600,7 +602,7 @@ class PistonViewer {
             const markerGeometry = new THREE.SphereGeometry(28, 16, 8);
             const startMarker = new THREE.Mesh(
                 markerGeometry,
-                new THREE.MeshBasicMaterial({ color: 0x62e6a9, depthTest: false, depthWrite: false })
+                new THREE.MeshBasicMaterial({ color: ROUTE_LOW_COLOR, depthTest: false, depthWrite: false })
             );
             startMarker.position.copy(points[0]);
             startMarker.renderOrder = 1002;
@@ -608,7 +610,7 @@ class PistonViewer {
 
             const endMarker = new THREE.Mesh(
                 markerGeometry.clone(),
-                new THREE.MeshBasicMaterial({ color: 0xff6b6b, depthTest: false, depthWrite: false })
+                new THREE.MeshBasicMaterial({ color: ROUTE_HIGH_COLOR, depthTest: false, depthWrite: false })
             );
             endMarker.position.copy(points[points.length - 1]);
             endMarker.renderOrder = 1002;
@@ -644,16 +646,43 @@ class PistonViewer {
                 ROUTE_OVERLAY_Y,
                 -(coord[1] - this.worldOrigin.y)
             );
+            point.routeElevation = Number.isFinite(coord[2]) ? coord[2] : 0;
             const last = points[points.length - 1];
             if (!last || last.distanceToSquared(point) > 4) points.push(point);
         }
         return points;
     }
 
-    createRouteRibbonGeometry(points, widthMeters) {
+    createRouteRibbonGeometry(points, widthMeters, useGradient = false) {
         const half = widthMeters * 0.5;
         const positions = [];
+        const colors = [];
         const indices = [];
+        const cumulative = [0];
+        let totalDistance = 0;
+        let minElevation = Infinity;
+        let maxElevation = -Infinity;
+
+        for (let i = 0; i < points.length; i++) {
+            const elevation = points[i].routeElevation || 0;
+            minElevation = Math.min(minElevation, elevation);
+            maxElevation = Math.max(maxElevation, elevation);
+            if (i > 0) {
+                totalDistance += points[i - 1].distanceTo(points[i]);
+                cumulative.push(totalDistance);
+            }
+        }
+
+        const elevationRange = maxElevation - minElevation;
+        const hasElevation = elevationRange > 0.1;
+        const blue = new THREE.Color(ROUTE_LOW_COLOR);
+        const pink = new THREE.Color(ROUTE_HIGH_COLOR);
+        const colorForPoint = (idx) => {
+            const t = hasElevation
+                ? ((points[idx].routeElevation || 0) - minElevation) / elevationRange
+                : (totalDistance > 0 ? cumulative[idx] / totalDistance : 0);
+            return blue.clone().lerp(pink, Math.min(1, Math.max(0, t)));
+        };
 
         for (let i = 0; i < points.length - 1; i++) {
             const a = points[i];
@@ -672,14 +701,34 @@ class PistonViewer {
                 b.x + px, b.y, b.z + pz,
                 b.x - px, b.y, b.z - pz
             );
+            if (useGradient) {
+                const ca = colorForPoint(i);
+                const cb = colorForPoint(i + 1);
+                colors.push(
+                    ca.r, ca.g, ca.b,
+                    ca.r, ca.g, ca.b,
+                    cb.r, cb.g, cb.b,
+                    cb.r, cb.g, cb.b
+                );
+            }
             indices.push(base, base + 2, base + 1, base + 2, base + 3, base + 1);
         }
 
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        if (useGradient) geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
         geometry.setIndex(indices);
         geometry.computeBoundingSphere();
         return geometry;
+    }
+
+    updateRouteVisibility(flat) {
+        if (!this.routeLayer) return;
+        const shouldShow = this.routeVisible && flat;
+        if (this.routeLayer.visible !== shouldShow) {
+            this.routeLayer.visible = shouldShow;
+            this.needsRender = true;
+        }
     }
 
     enqueueFreigerPreload() {
@@ -1958,6 +2007,7 @@ class PistonViewer {
         const flat = angle < 5.5;
         const wasMoving3D = this.wasMoving3D;
         this.isMoving3D = !flat && (moved || this.isUserInteracting);
+        this.updateRouteVisibility(flat);
 
         // --- DERIVE ENGINE STATE (must happen after moved/flat/isMoving3D are set) ---
         this.engineState = this.deriveEngineState(moved, flat);
