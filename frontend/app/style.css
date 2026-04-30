@@ -38,50 +38,14 @@ body {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
-/* === DEBUG: Panel minimize functionality === */
 .panel-header {
     display: flex;
-    justify-content: space-between;
     align-items: flex-start;
     margin-bottom: 15px;
 }
 
 .header-content {
     flex: 1;
-}
-
-.minimize-btn {
-    background: rgba(116, 185, 255, 0.2);
-    border: 1px solid rgba(116, 185, 255, 0.4);
-    color: #fff;
-    font-size: 1.2rem;
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    cursor: pointer;
-    transition: all 0.2s;
-    font-family: monospace;
-    line-height: 1;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.minimize-btn:hover {
-    background: rgba(116, 185, 255, 0.4);
-}
-
-.minimize-btn:active {
-    transform: translateY(1px);
-}
-
-#main-panel.minimized .panel-body {
-    display: none;
-}
-
-#main-panel.minimized .panel-header {
-    margin-bottom: 0;
 }
 
 .panel-body {

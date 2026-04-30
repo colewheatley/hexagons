@@ -19,11 +19,10 @@ A browser-based 3D terrain viewer that renders the Austrian Tirol using a hexago
 │   │   ├── main.js         # PistonViewer — scene, camera, tile loading
 │   │   ├── tile_worker.js  # Web Worker for hex mesh generation
 │   │   ├── lod_controller.js  # LOD distance & budget management
-│   │   ├── search.js       # Search overlay (peaks + ski areas)
 │   │   ├── coordinate_utility.js
 │   │   ├── style.css
 │   │   ├── tiles_bin/      # Baked .bin sectors (git-ignored)
-│   │   ├── aerial_tiles/   # Baked .webp textures (git-ignored)
+│   │   ├── aerial_tiles/   # Baked full-resolution .webp textures (git-ignored)
 │   │   └── assets/         # Static data (skigebiete.json, peaks geojson)
 │   └── landing/            # Marketing landing page
 │

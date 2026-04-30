@@ -1,0 +1,20 @@
+{
+  "name": "hexagons-freiger",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-capacitor-web.mjs",
+    "cap:add:android": "cap add android",
+    "cap:sync": "cap sync",
+    "android:debug": "cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.0.0",
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/cli": "^7.0.0"
+  }
+}

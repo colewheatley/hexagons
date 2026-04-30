@@ -41,9 +41,6 @@ self.onmessage = async function (e) {
 
             self.postMessage({ id, status: 'success', result }, transferables);
 
-        } else if (type === 'LOAD_TEXTURE') {
-            const result = await loadTextureOnly(data);
-            self.postMessage({ id, status: 'success', result }, [result.bitmap]);
         }
     } catch (err) {
         // Error communicated to main thread via postMessage — no console spam
@@ -52,7 +49,7 @@ self.onmessage = async function (e) {
 };
 
 async function loadTile({ q, r, lx, lz, texUrl, binUrl }) {
-    // Parallel Fetch: Bin + LowTexture
+    // Parallel Fetch: Bin + full-resolution texture
     const [binRes, texRes] = await Promise.all([
         fetch(binUrl),
         fetch(texUrl)
@@ -84,14 +81,6 @@ async function loadTile({ q, r, lx, lz, texUrl, binUrl }) {
         layers: parsed.layers // Return raw data too for height picking if needed? 
         // Main thread needs raw layers for camera height collision
     };
-}
-
-async function loadTextureOnly({ url }) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Failed to load tex: ${url}`);
-    const blob = await res.blob();
-    const bitmap = await createImageBitmap(blob, { colorSpaceConversion: 'default', imageOrientation: 'flipY' });
-    return { bitmap };
 }
 
 function parseBinaryV3(buffer) {

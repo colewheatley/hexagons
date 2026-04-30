@@ -1,18 +1,18 @@
-<!-- @atlas: The primary HTML5 shell for the PowFinder 'Bestagon' Viewer. Contains the full structure for the glassmorphic HUD overlay (performance telemetry, granular LOD tuning sliders, and frametime graphs) alongside the WebGL canvas container and the animated SVG loading screen. -->
+<!-- @atlas: Freiger tour shell for the Hexagons viewer. Keeps the controls minimal for a one-time static route map. -->
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PowFinder | Bestagon Viewer</title>
+    <title>Hexagons Freiger</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+                "three": "./vendor/three/build/three.module.js",
+                "three/addons/": "./vendor/three/examples/jsm/"
             }
         }
     </script>
@@ -47,246 +47,11 @@
     </div>
 
     <div id="ui">
-        <div class="glass-panel minimized" id="main-panel">
+        <div class="glass-panel" id="main-panel">
             <div class="panel-header">
                 <div class="header-content">
                     <h1>POWFINDER 3D</h1>
-                    <div class="subtitle">Binary Hex Piston Engine</div>
-                </div>
-                <button id="minimize-btn" class="minimize-btn" title="Minimize Panel">+</button>
-            </div>
-
-            <div class="panel-body">
-                <div class="stats">
-                    <!-- Basic Stats (Always Visible) -->
-                    <div class="hud-item">
-                        <span>LOCATION</span>
-                        <span class="value" id="loc-val">SULZENAU, TIROL</span>
-                    </div>
-                    <div class="hud-item">
-                        <span>FPS / ZOOM</span>
-                        <span class="value" id="fps-counter">--</span>
-                    </div>
-                    <div class="hud-item">
-                        <span>HEXAGONS</span>
-                        <span class="value" id="hex-count">-- VISIBLE</span>
-                    </div>
-                    <div class="hud-item">
-                        <span>PRECISION</span>
-                        <span class="value">FLOAT16 (CM)</span>
-                    </div>
-
-                    <!-- Position & Debug (Collapsible) -->
-                    <div class="collapsible-section collapsed" data-section="debug">
-                        <div class="collapsible-header">
-                            <span class="title">POSITION & DEBUG</span>
-                            <span class="arrow">▼</span>
-                        </div>
-                        <div class="collapsible-content">
-                            <div class="hud-item">
-                                <span>TRIANGLES</span>
-                                <span class="value" id="tri-count">-- / -- (--)</span>
-                            </div>
-                            <div class="hud-item">
-                                <span>DRAW CALLS</span>
-                                <span class="value" id="draw-stats">-- | G:-- | T:--</span>
-                            </div>
-                            <div class="hud-item">
-                                <span>SECTOR</span>
-                                <span class="value" id="sector-val">--</span>
-                            </div>
-                            <div class="hud-item">
-                                <span>HEX</span>
-                                <span class="value" id="hex-val">--</span>
-                            </div>
-                            <div class="hud-item" style="display: none;">
-                                <span>WORLD XY</span>
-                                <span class="value" id="world-val">--</span>
-                            </div>
-                            <div class="hud-item">
-                                <span>TILE HEIGHT</span>
-                                <span class="value" id="tile-height">--m</span>
-                            </div>
-                            <div class="hud-item">
-                                <span>CAMERA HEIGHT</span>
-                                <span class="value" id="camera-height">--m</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- LOD Benchmarks (Collapsible) -->
-                    <div class="collapsible-section collapsed" data-section="benchmarks">
-                        <div class="collapsible-header">
-                            <span class="title">LOD BENCHMARKS (MS)</span>
-                            <span class="arrow">▼</span>
-                        </div>
-                        <div class="collapsible-content">
-                            <div class="hud-item"
-                                style="justify-content: space-between; font-family: 'Courier New', monospace; font-size: 10px;">
-                                <span style="color: #aaa;">LINEAR SCAN</span>
-                                <span class="value" id="bench-loop" style="color: #ff6b9d;">--</span>
-                            </div>
-                            <div class="hud-item"
-                                style="justify-content: space-between; font-family: 'Courier New', monospace; font-size: 10px;">
-                                <span style="color: #aaa;">QUAD TREE</span>
-                                <span class="value" id="bench-tree" style="color: #74b9ff;">--</span>
-                            </div>
-                            <div class="hud-item"
-                                style="justify-content: space-between; font-family: 'Courier New', monospace; font-size: 10px;">
-                                <span style="color: #aaa;">GRID HASH</span>
-                                <span class="value" id="bench-hash" style="color: #2ecc71;">--</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Granular LOD Tuning -->
-                    <div class="collapsible-section collapsed" data-section="geometry">
-                        <div class="collapsible-header">
-                            <span class="title">GRANULAR LOD TUNING</span>
-                            <span class="arrow">▼</span>
-                        </div>
-                        <div class="collapsible-content">
-                            <!-- RENDER DISTANCE -->
-                            <div class="hud-item" style="flex-direction: column; margin-top: 5px;">
-                                <div style="display: flex; justify-content: space-between; width: 100%;">
-                                    <span>RENDER DISTANCE</span>
-                                    <span class="value" id="render-distance-val">20km</span>
-                                </div>
-                                <input type="range" id="render-distance-slider" min="1" max="50" step="1" value="20"
-                                    style="width: 100%;">
-                            </div>
-
-                            <!-- TEXTURE UPGRADE -->
-                            <div class="hud-item" style="flex-direction: column; margin-top: 10px;">
-                                <div style="display: flex; justify-content: space-between; width: 100%;">
-                                    <span>TEXTURE UPGRADE</span>
-                                    <span class="value" id="tex-upgrade-val">2000m</span>
-                                </div>
-                                <input type="range" id="tex-upgrade-slider" min="0" max="5000" step="100" value="2000"
-                                    style="width: 100%;">
-                            </div>
-
-                            <!-- UNIT -->
-                            <div class="hud-item"
-                                style="flex-direction: column; margin-top: 10px; border-top: 1px solid #333; padding-top: 10px;">
-                                <span>UNIT (0 - <span id="lod-unit-end-val">700</span>m)</span>
-                            </div>
-                            <input type="range" id="lod-unit-end" min="0" max="5000" step="50" value="700"
-                                style="width: 100%;">
-
-                            <!-- SMALL -->
-                            <div class="hud-item" style="flex-direction: column; margin-top: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span>SMALL</span>
-                                </div>
-                                <div style="display: flex; gap: 5px;">
-                                    <input type="range" id="lod-small-start" min="0" max="5000" step="50" value="600"
-                                        title="Start">
-                                    <input type="range" id="lod-small-end" min="0" max="10000" step="50" value="2100"
-                                        title="End">
-                                </div>
-                                <div
-                                    style="display: flex; justify-content: space-between; font-size: 10px; color: #aaa;">
-                                    <span id="lod-small-start-val">600m</span>
-                                    <span id="lod-small-end-val">2100m</span>
-                                </div>
-                            </div>
-
-                            <!-- MEDIUM -->
-                            <div class="hud-item" style="flex-direction: column; margin-top: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span>MEDIUM</span>
-                                </div>
-                                <div style="display: flex; gap: 5px;">
-                                    <input type="range" id="lod-medium-start" min="0" max="15000" step="100"
-                                        value="1900" title="Start">
-                                    <input type="range" id="lod-medium-end" min="0" max="25000" step="100" value="5100"
-                                        title="End">
-                                </div>
-                                <div
-                                    style="display: flex; justify-content: space-between; font-size: 10px; color: #aaa;">
-                                    <span id="lod-medium-start-val">1900m</span>
-                                    <span id="lod-medium-end-val">5100m</span>
-                                </div>
-                            </div>
-
-                            <!-- LARGE -->
-                            <div class="hud-item" style="flex-direction: column; margin-top: 10px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span>LARGE (Start)</span>
-                                </div>
-                                <input type="range" id="lod-large-start" min="0" max="30000" step="100" value="4900"
-                                    style="width: 100%;">
-                                <div style="display: flex; justify-content: flex-start; font-size: 10px; color: #aaa;">
-                                    <span id="lod-large-start-val">4900m</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-
-
-                <!-- Toggles (Always Visible) -->
-                <div class="hud-item"
-                    style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; border-top: 1px solid #333; padding-top: 10px;">
-                    <span>Gradient</span>
-                    <div class="pill-toggle"
-                        style="display: flex; background: rgba(20, 20, 20, 0.7); border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1); padding: 4px; gap: 4px;">
-                        <button class="pill-btn"
-                            style="background: transparent; color: #ccc; border: none; padding: 6px 12px; border-radius: 16px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif;"
-                            id="gradient-terrain">terrain</button>
-                        <button class="pill-btn active"
-                            style="background: #74b9ff; color: #fff; border: none; padding: 6px 12px; border-radius: 16px; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; font-family: 'Outfit', sans-serif;"
-                            id="gradient-slope">gradient</button>
-                    </div>
-                </div>
-
-
-                <div class="hud-item"
-                    style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                    <span>PAUSE LOD UPDATES</span>
-                    <input type="checkbox" id="lod-pause-toggle" style="pointer-events: auto;">
-                </div>
-
-                <div class="hud-item"
-                    style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                    <span>ADVANCED TOUCH</span>
-                    <input type="checkbox" id="touch-controls-toggle" style="pointer-events: auto;">
-                </div>
-
-                <!-- Frametime Graph (Always Visible) -->
-                <div class="hud-item frametime-item" style="margin-top: 15px;">
-                    <canvas id="frametime-graph" width="640" height="80"></canvas>
-                </div>
-
-                <div class="info-panel">
-                    <div class="tech-header">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="3">
-                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                        </svg>
-                        Why Bestagons?
-                    </div>
-                    <div class="tech-description">
-                        Utilizing a single GPU Draw Call for terrain mesh.
-                        <span class="tech-spec">
-                            - 1DrawCall / 15k Hexes<br>
-                            - Zero DrawCall Overhead<br>
-                            - 16-Byte "HEX4" Layout<br>
-                            - Directional Skirt AO
-                        </span>
-                    </div>
-                </div>
-
-                <div class="console-panel">
-                    <div class="console-header">
-                        <span>STATUS LOG</span>
-                        <button id="copy-log-btn" class="console-btn">COPY</button>
-                    </div>
-                    <div id="console-output" class="console-box">
-                        <div class="log-line">Waiting for system...</div>
-                    </div>
+                    <div class="subtitle">Wilder Freiger + Offline</div>
                 </div>
             </div>
         </div>
@@ -313,7 +78,7 @@
         </div>
         <div id="canvas-container"></div>
 
-        <script type="module" src="main.js?v=debug3"></script>
+        <script type="module" src="main.js?v=freiger"></script>
 </body>
 
 </html>

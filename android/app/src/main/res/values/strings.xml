@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hexagons Freiger</string>
+    <string name="title_activity_main">Hexagons Freiger</string>
+    <string name="package_name">cloud.wheatley.hexagons.freiger</string>
+    <string name="custom_url_scheme">cloud.wheatley.hexagons.freiger</string>
+</resources>

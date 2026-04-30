@@ -1,4 +1,4 @@
-# @atlas: The central terrain baking pipeline ('Waffle Iron' v4.1). Ingests large EPSG:31254 DEMs and high-res orthophotos (TIFs). It processes these into a proprietary 16-byte 'Uber-Hex' binary structure (.bin) featuring delta compression, 'Diamond' slope area sampling, and packed lighting normals. Simultaneously generates and uploads padded webp tiles (full and low-res LODs) to S3, using incremental caching to prevent redundant bakes.
+# @atlas: The central terrain baking pipeline ('Waffle Iron' v4.1). Ingests large EPSG:31254 DEMs and high-res orthophotos (TIFs). It processes these into a proprietary 16-byte 'Uber-Hex' binary structure (.bin) featuring delta compression, 'Diamond' slope area sampling, and packed lighting normals. Simultaneously generates and uploads padded full-resolution webp tiles to S3, using incremental caching to prevent redundant bakes.
 # 🧇 Waffle Iron v4.1 - Incremental Bake Edition
 # =============================================================================
 # FEATURES:
@@ -23,8 +23,7 @@
 # OUTPUT FORMATS (baked per-sector, also NOT in git):
 #   .bin:   HEX4 header + 4 LOD layers of packed 16-byte records
 #           Each record: dq(b) dr(b) h(H) d1(h) d2(h) d3(h) s1(B) s2(B) s3(B) nx(B) nz(B) pad(x)
-#   .webp:  Aerial texture with 64px padding for seamless tile blending
-#           Saved at full res + 1/16 "low" res for LOD streaming
+#   .webp:  Full-resolution aerial texture with 64px padding for seamless tile blending
 #
 # HARDWARE PROFILE (reference machine):
 #   MacBook M1, 16 GB shared memory
@@ -48,6 +47,7 @@ import argparse
 import shutil
 import sys
 import struct
+import subprocess
 from pyproj import Transformer
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -63,7 +63,7 @@ def latlon_to_world_meters(lat, lon):
 # =============================================================================
 S3_ENABLED = False # Default to False
 S3_BUCKET = "wheatley.cloud"
-S3_PREFIX = "powfinder/app"
+S3_PREFIX = "powfinder/hexagons/freiger"
 
 # =============================================================================
 # CONSTANTS & CONFIGURATION
@@ -322,20 +322,15 @@ def bake_sector_textures(SX, SY, valid_tifs, output_dir="frontend/app/aerial_til
                 canvas.paste(patch, (px, py))
             except: pass
 
-    res_dirs = { k: os.path.join(output_dir, k) for k in ["full", "low"] }
+    res_dirs = { k: os.path.join(output_dir, k) for k in ["full"] }
     for d in res_dirs.values():
         if not os.path.exists(d): os.makedirs(d)
 
     f_name = f"sector_{SX}_{SY}.webp"
     full_path = os.path.join(res_dirs["full"], f_name)
-    low_path = os.path.join(res_dirs["low"], f_name)
 
     canvas.save(full_path, "WEBP", quality=WEB_P_QUALITY)
     upload_to_s3(full_path)
-
-    c_low = canvas.resize((total_size_px // 16, total_size_px // 16), Image.LANCZOS)
-    c_low.save(low_path, "WEBP", quality=WEB_P_QUALITY)
-    upload_to_s3(low_path)
 
 def get_diamond_stats(grad_ds, p1, p2):
     """
@@ -665,8 +660,8 @@ def main():
         S3_ENABLED = False
 
     # --- CLEANUP (Non-destructive) ---
-    dirs_to_ensure = ["frontend/app/tiles_bin", "frontend/app/aerial_tiles", 
-                      "frontend/app/aerial_tiles/full", "frontend/app/aerial_tiles/low"]
+    dirs_to_ensure = ["frontend/app/tiles_bin", "frontend/app/aerial_tiles",
+                      "frontend/app/aerial_tiles/full"]
     for d in dirs_to_ensure:
         os.makedirs(d, exist_ok=True)
 
