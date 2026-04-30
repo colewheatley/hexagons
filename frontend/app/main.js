@@ -42,7 +42,10 @@ const ESTIMATED_FULL_TILE_VRAM = (4224 * 4224 * 4) + (512 * 1024);
 const FREIGER_SECTOR_BOUNDS = { minQ: 76, maxQ: 82, minR: 246, maxR: 255 };
 const FREIGER_CENTER = { x: 65000, y: 205500 };
 const FREIGER_ROUTE_URL = 'assets/freiger_ascent.geojson';
+const FREIGER_ROUTE_3D_URL = 'assets/freiger_route_3d.json';
+const FREIGER_ROUTE_SECTOR_BASE_URL = 'assets/freiger_route_sectors';
 const ROUTE_OVERLAY_Y = 42;
+const ROUTE_TERRAIN_LIFT = 5.0;
 const ROUTE_LOW_COLOR = 0x74b9ff;
 const ROUTE_HIGH_COLOR = 0xff6b9d;
 const FLOOR_MODE = 'view-min';
@@ -169,6 +172,11 @@ class PistonViewer {
         this.projScreenMatrix = new THREE.Matrix4();
         this.renderSettings = { renderDistance: DEFAULT_RENDER_DISTANCE };
         this.routeLayer = null;
+        this.route3DGlobalLayer = null;
+        this.routeSectorMeshes = new Map();
+        this.routeSectorCache = new Map();
+        this.routeSectorUnavailable = new Set();
+        this.routeMaterialsToUpdate = new Set();
         this.routeVisible = true;
 
         // Debug/Stats
@@ -620,9 +628,27 @@ class PistonViewer {
             this.routeLayer = layer;
             this.scene.add(layer);
             this.log(`Route overlay loaded (${points.length} points).`, "success");
+            await this.loadGlobalTerrainRoute();
             this.needsRender = true;
         } catch (e) {
             this.log(`Route overlay unavailable: ${e.message}`, "error");
+        }
+    }
+
+    async loadGlobalTerrainRoute() {
+        try {
+            const res = await fetch(FREIGER_ROUTE_3D_URL);
+            if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+            const route = await res.json();
+            const points = this.routePointsFromSampledRoute(route.points || []);
+            if (points.length < 2) return;
+
+            const layer = this.createTerrainRouteGroup(points, 'freiger-route-3d-global');
+            layer.visible = false;
+            this.route3DGlobalLayer = layer;
+            this.scene.add(layer);
+        } catch (e) {
+            this.log(`3D route unavailable: ${e.message}`, "error");
         }
     }
 
@@ -653,10 +679,27 @@ class PistonViewer {
         return points;
     }
 
-    createRouteRibbonGeometry(points, widthMeters, useGradient = false) {
+    routePointsFromSampledRoute(sampledPoints) {
+        const points = [];
+        for (const coord of sampledPoints) {
+            if (!coord || !Number.isFinite(coord.x) || !Number.isFinite(coord.y) || !Number.isFinite(coord.e)) continue;
+            const point = new THREE.Vector3(
+                coord.x - this.worldOrigin.x,
+                0,
+                -(coord.y - this.worldOrigin.y)
+            );
+            point.routeElevation = coord.e;
+            point.routeDistance = coord.d || 0;
+            points.push(point);
+        }
+        return points;
+    }
+
+    createRouteRibbonGeometry(points, widthMeters, useGradient = false, useTerrainHeight = false) {
         const half = widthMeters * 0.5;
         const positions = [];
         const colors = [];
+        const elevations = [];
         const indices = [];
         const cumulative = [0];
         let totalDistance = 0;
@@ -701,6 +744,14 @@ class PistonViewer {
                 b.x + px, b.y, b.z + pz,
                 b.x - px, b.y, b.z - pz
             );
+            if (useTerrainHeight) {
+                elevations.push(
+                    a.routeElevation || 0,
+                    a.routeElevation || 0,
+                    b.routeElevation || 0,
+                    b.routeElevation || 0
+                );
+            }
             if (useGradient) {
                 const ca = colorForPoint(i);
                 const cb = colorForPoint(i + 1);
@@ -717,18 +768,137 @@ class PistonViewer {
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         if (useGradient) geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        if (useTerrainHeight) geometry.setAttribute('routeElevation', new THREE.Float32BufferAttribute(elevations, 1));
         geometry.setIndex(indices);
         geometry.computeBoundingSphere();
         return geometry;
     }
 
+    createTerrainRouteMaterial({ color = 0xffffff, opacity = 1.0, vertexColors = false } = {}) {
+        const material = new THREE.MeshBasicMaterial({
+            color,
+            vertexColors,
+            transparent: true,
+            opacity,
+            depthTest: true,
+            depthWrite: false,
+            side: THREE.DoubleSide
+        });
+        material.onBeforeCompile = (shader) => {
+            material.userData.shader = shader;
+            shader.uniforms.uHeightFactor = { value: 0.0 };
+            shader.uniforms.uFloorOffset = { value: 0.0 };
+            shader.uniforms.uRouteLift = { value: ROUTE_TERRAIN_LIFT };
+            shader.vertexShader = shader.vertexShader
+                .replace('#include <common>', `
+                    #include <common>
+                    attribute float routeElevation;
+                    uniform float uHeightFactor;
+                    uniform float uFloorOffset;
+                    uniform float uRouteLift;
+                `)
+                .replace('#include <begin_vertex>', `
+                    #include <begin_vertex>
+                    transformed.y = ((routeElevation - uFloorOffset) * uHeightFactor) + uRouteLift;
+                `);
+        };
+        material.customProgramCacheKey = () => 'freiger_route_terrain_v1';
+        this.routeMaterialsToUpdate.add(material);
+        return material;
+    }
+
+    createTerrainRouteGroup(points, name = 'freiger-route-3d') {
+        const group = new THREE.Group();
+        group.name = name;
+        group.renderOrder = 1100;
+
+        const halo = new THREE.Mesh(
+            this.createRouteRibbonGeometry(points, 12, false, true),
+            this.createTerrainRouteMaterial({ color: 0x0b1019, opacity: 0.72 })
+        );
+        halo.renderOrder = 1100;
+        group.add(halo);
+
+        const ribbon = new THREE.Mesh(
+            this.createRouteRibbonGeometry(points, 5, true, true),
+            this.createTerrainRouteMaterial({ vertexColors: true, opacity: 0.98 })
+        );
+        ribbon.renderOrder = 1101;
+        group.add(ribbon);
+        return group;
+    }
+
     updateRouteVisibility(flat) {
-        if (!this.routeLayer) return;
-        const shouldShow = this.routeVisible && flat;
-        if (this.routeLayer.visible !== shouldShow) {
-            this.routeLayer.visible = shouldShow;
+        const showFlat = this.routeVisible && flat;
+        const showTerrain = this.routeVisible && !flat;
+
+        if (this.routeLayer && this.routeLayer.visible !== showFlat) {
+            this.routeLayer.visible = showFlat;
             this.needsRender = true;
         }
+
+        const hasSectorRoutes = this.routeSectorMeshes.size > 0;
+        if (this.route3DGlobalLayer) {
+            const shouldShowGlobal = showTerrain && !hasSectorRoutes;
+            if (this.route3DGlobalLayer.visible !== shouldShowGlobal) {
+                this.route3DGlobalLayer.visible = shouldShowGlobal;
+                this.needsRender = true;
+            }
+        }
+
+        for (const group of this.routeSectorMeshes.values()) {
+            if (group.visible !== showTerrain) {
+                group.visible = showTerrain;
+                this.needsRender = true;
+            }
+        }
+    }
+
+    updateRouteUniforms(h) {
+        for (const material of this.routeMaterialsToUpdate) {
+            const shader = material.userData.shader;
+            if (!shader) continue;
+            shader.uniforms.uHeightFactor.value = h;
+            shader.uniforms.uFloorOffset.value = this.floorState.value;
+            shader.uniforms.uRouteLift.value = ROUTE_TERRAIN_LIFT;
+        }
+    }
+
+    async attachSectorRoute(tile) {
+        const key = `${tile.q}_${tile.r}`;
+        if (tile.routeGroup || this.routeSectorUnavailable.has(key)) return;
+
+        try {
+            let route = this.routeSectorCache.get(key);
+            if (!route) {
+                const res = await fetch(`${FREIGER_ROUTE_SECTOR_BASE_URL}/sector_${tile.q}_${tile.r}.json`);
+                if (res.status === 404) {
+                    this.routeSectorUnavailable.add(key);
+                    return;
+                }
+                if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+                route = await res.json();
+                this.routeSectorCache.set(key, route);
+            }
+
+            if (!this.tiles.has(key) || tile.routeGroup) return;
+            const points = this.routePointsFromSampledRoute(route.points || []);
+            if (points.length < 2) return;
+
+            const group = this.createTerrainRouteGroup(points, `freiger-route-sector-${key}`);
+            group.visible = this.routeVisible && !this.isFlatView();
+            tile.container.add(group);
+            tile.routeGroup = group;
+            this.routeSectorMeshes.set(key, group);
+            this.needsRender = true;
+            this.updateRouteVisibility(this.isFlatView());
+        } catch (e) {
+            console.warn(`Route sector ${key} unavailable`, e);
+        }
+    }
+
+    isFlatView() {
+        return (this.controls.getPolarAngle() * 180 / Math.PI) < 5.5;
     }
 
     enqueueFreigerPreload() {
@@ -1485,6 +1655,7 @@ class PistonViewer {
             };
             this.tiles.set(key, tileObj);
             this.updateGlobalStats(workerData.stats);
+            this.attachSectorRoute(tileObj);
 
             // --- LEDGER: Register tile's GPU footprint ---
             // Geometry bytes pre-computed on worker thread (Graft 3)
@@ -1614,7 +1785,24 @@ class PistonViewer {
             }
         }
 
-        // 4. Shared material (may have its own texture ref)
+        // 4. Route mesh attached to this sector
+        if (tile.routeGroup) {
+            tile.routeGroup.traverse(obj => {
+                if (!obj.isMesh) return;
+                if (obj.geometry) obj.geometry.dispose();
+                const materials = obj.material
+                    ? (Array.isArray(obj.material) ? obj.material : [obj.material])
+                    : [];
+                for (const mat of materials) {
+                    this.routeMaterialsToUpdate.delete(mat);
+                    mat.dispose();
+                }
+            });
+            this.routeSectorMeshes.delete(`${tile.q}_${tile.r}`);
+            tile.routeGroup = null;
+        }
+
+        // 5. Shared material (may have its own texture ref)
         if (tile.material) {
             if (tile.material.map) {
                 tile.material.map.dispose();
@@ -1624,7 +1812,7 @@ class PistonViewer {
             tile.material.dispose();
         }
 
-        // 5. Cloned materials list (catch any stragglers not in traversal)
+        // 6. Cloned materials list (catch any stragglers not in traversal)
         if (tile.clonedMaterials) {
             tile.clonedMaterials.forEach(m => {
                 this.materialsToUpdate.delete(m);
@@ -1633,12 +1821,13 @@ class PistonViewer {
             });
         }
 
-        // 6. Nullify all references to assist GC
+        // 7. Nullify all references to assist GC
         tile.mesh = null;
         tile.flatMesh = null;
         tile.material = null;
         tile.clonedMaterials = null;
         tile.container = null;
+        tile.routeGroup = null;
         tile.lods = null;
         tile.hexDataLayers = null;
     }
@@ -2051,6 +2240,7 @@ class PistonViewer {
         }
 
         this.updateFloorState(h);
+        this.updateRouteUniforms(h);
         this.maintainCameraAltitudeDuringAnimation(h);
 
         // --- VISIBILITY PASS ---

@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "route:build": "pixi run python scripts/build-freiger-route-assets.py",
     "build": "node scripts/build-capacitor-web.mjs",
     "cap:add:android": "cap add android",
     "cap:sync": "cap sync",
