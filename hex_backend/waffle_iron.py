@@ -68,7 +68,7 @@ S3_PREFIX = "powfinder/hexagons/freiger"
 # =============================================================================
 # CONSTANTS & CONFIGURATION
 # =============================================================================
-TEXTURE_PADDING_PX = 64  
+TEXTURE_PADDING_PX = 448  # Must cover largest hex radius: scale=24 → 88.7m → 444px
 WEB_P_QUALITY = 10
 DEBUG_MODE = False
 

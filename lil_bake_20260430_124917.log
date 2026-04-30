@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/Users/cole/dev/Hexagons/hex_backend/waffle_iron.py", line 40, in <module>
+    import rasterio
+ModuleNotFoundError: No module named 'rasterio'

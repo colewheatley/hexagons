@@ -1,17 +1,8 @@
-// @atlas: The core 'PistonViewer' Three.js orchestrator. Manages the 60fps render loop, MapControls interaction, and instanced mesh generation. Uses a strict state machine (MOVING vs SINTERING) to preserve frame budgets while asynchronously dispatching Web Workers to decode and inject new 'HEX4' binary terrain tiles.
+// Freiger tour viewer — stripped for 28-tile one-off deployment
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
-import { VRAMLedger } from './vram_ledger.js';
-import { CacheManager } from './cache_manager.js';
 
-// --- ENGINE STATE MACHINE & PERFORMANCE MONITORING ---
-const APP_VERSION = 'v0.9.0-freiger';
-const ENGINE_STATES = { MOVING_2D: 'MOVING_2D', MOVING_3D: 'MOVING_3D', SINTERING: 'SINTERING', STATIC: 'STATIC' };
-// Per-state frame budgets (ms). Violations logged only when exceeded.
-// MOVING targets 60fps. STATIC must never render at all (budget=0).
-const STATE_BUDGETS_MS = { MOVING_2D: 16, MOVING_3D: 16, SINTERING: 1200, STATIC: 0 };
-const PERF_VERBOSE_MAX = 5;    // First N violations: full-fat JSON with culprits
-const PERF_STATS_WINDOW = 200; // After verbose cap: accumulate, then flush stats every N violations
+const APP_VERSION = 'v1.0.0-freiger';
 
 // Silent pass-through — subsystem timing now handled by the aggregate
 // frame-level [PERF_VIOLATION] system inside animate().
@@ -33,13 +24,8 @@ function worldToSectorID(worldX, worldY) {
 const TILE_WIDTH_WORLD = SECTOR_WIDTH_METERS;
 const TILE_HEIGHT_WORLD = SECTOR_WIDTH_METERS;
 const SCALE_Z = 1.0;
-// --- DEBUG OVERRIDE ---
-// Freiger is a bounded tour map; load generously and avoid churn.
 const DEFAULT_RENDER_DISTANCE = 10000;
-const FREIGER_CACHE_BUDGET_BYTES = 8 * 1024 * 1024 * 1024;
-const FREIGER_DISABLE_CACHE_EVICTION = true;
-const ESTIMATED_FULL_TILE_VRAM = (4224 * 4224 * 4) + (512 * 1024);
-const FREIGER_SECTOR_BOUNDS = { minQ: 76, maxQ: 82, minR: 246, maxR: 255 };
+const FREIGER_SECTOR_BOUNDS = { minQ: 77, maxQ: 80, minR: 248, maxR: 254 };
 const FREIGER_CENTER = { x: 65000, y: 205500 };
 const FREIGER_ROUTE_URL = 'assets/freiger_ascent.geojson';
 const FREIGER_ROUTE_3D_URL = 'assets/freiger_route_3d.json';
@@ -194,18 +180,8 @@ class PistonViewer {
         this.wasMoving3D = false;
         this.sinterQueue = [];
 
-        // Engine state machine (for structured perf logging)
-        this.engineState = ENGINE_STATES.STATIC;
-        this._perfViolationCount = 0;
-        this._perfStats = {};  // Per-state rolling stats: { STATE: { min, max, sum, count } }
-        this._texErrorCount = 0; // Dedup repeated texture decode failures
         this._frameCounter = 0;
-
-        // Frametime Graph
-        this.frametimeCanvas = document.getElementById('frametime-graph');
-        this.frametimeCtx = this.frametimeCanvas ? this.frametimeCanvas.getContext('2d') : null;
         this.frametimeBuffer = new Array(640).fill(16.67); // 60fps baseline
-        this.frametimeLastTime = performance.now();
 
         // LOD Pause Toggle
         this.lodPaused = false;
@@ -223,9 +199,7 @@ class PistonViewer {
         this.jobIdCounter = 0;
         this.initWorkers();
 
-        // --- INFRASTRUCTURE: Telemetry & Cache Authority ---
-        this.vramLedger = new VRAMLedger();
-        this.cacheManager = new CacheManager(this.vramLedger, FREIGER_CACHE_BUDGET_BYTES);
+
 
         this.initWorld();
         this.animate();
@@ -292,100 +266,8 @@ class PistonViewer {
         });
     }
 
-    initLODSliders() {
-        // UNIT END
-        const unitEnd = document.getElementById('lod-unit-end');
-        if (unitEnd) {
-            unitEnd.addEventListener('input', () => {
-                this.lodRanges.unitEnd = parseInt(unitEnd.value);
-                document.getElementById('lod-unit-end-val').textContent = unitEnd.value;
-                this.needsRender = true;
-            });
-        }
 
-        // SMALL
-        const smallStart = document.getElementById('lod-small-start');
-        const smallEnd = document.getElementById('lod-small-end');
-        if (smallStart && smallEnd) {
-            smallStart.addEventListener('input', () => {
-                this.lodRanges.smallStart = parseInt(smallStart.value);
-                document.getElementById('lod-small-start-val').textContent = smallStart.value + 'm';
-                this.needsRender = true;
-            });
-            smallEnd.addEventListener('input', () => {
-                this.lodRanges.smallEnd = parseInt(smallEnd.value);
-                document.getElementById('lod-small-end-val').textContent = smallEnd.value + 'm';
-                this.needsRender = true;
-            });
-        }
 
-        // MEDIUM
-        const medStart = document.getElementById('lod-medium-start');
-        const medEnd = document.getElementById('lod-medium-end');
-        if (medStart && medEnd) {
-            medStart.addEventListener('input', () => {
-                this.lodRanges.mediumStart = parseInt(medStart.value);
-                document.getElementById('lod-medium-start-val').textContent = medStart.value + 'm';
-                this.needsRender = true;
-            });
-            medEnd.addEventListener('input', () => {
-                this.lodRanges.mediumEnd = parseInt(medEnd.value);
-                document.getElementById('lod-medium-end-val').textContent = medEnd.value + 'm';
-                this.needsRender = true;
-            });
-        }
-
-        // LARGE
-        const largeStart = document.getElementById('lod-large-start');
-        if (largeStart) {
-            largeStart.addEventListener('input', () => {
-                this.lodRanges.largeStart = parseInt(largeStart.value);
-                document.getElementById('lod-large-start-val').textContent = largeStart.value + 'm';
-                this.needsRender = true;
-            });
-        }
-
-        // Render Distance
-        const rdSlider = document.getElementById('render-distance-slider');
-        const rdVal = document.getElementById('render-distance-val');
-        if (rdSlider) {
-            rdSlider.value = this.renderSettings.renderDistance / 1000;
-            if (rdVal) rdVal.textContent = (this.renderSettings.renderDistance / 1000) + "km";
-            rdSlider.addEventListener('input', () => {
-                this.renderSettings.renderDistance = parseInt(rdSlider.value) * 1000;
-                if (rdVal) rdVal.textContent = rdSlider.value + "km";
-                this.updateFogAndClip();
-            });
-        }
-
-        // LOD Pause Toggle
-        const lodPauseToggle = document.getElementById('lod-pause-toggle');
-        if (lodPauseToggle) {
-            lodPauseToggle.addEventListener('change', (e) => {
-                this.lodPaused = e.target.checked;
-                this.log(this.lodPaused ? "LOD Updates PAUSED" : "LOD Updates RESUMED", "info");
-            });
-        }
-
-        this.syncLODUI();
-    }
-
-    syncLODUI() {
-        const r = this.lodRanges;
-        const set = (id, val) => {
-            const el = document.getElementById(id);
-            const valEl = document.getElementById(id + '-val');
-            if (el) el.value = val;
-            if (valEl) valEl.textContent = Math.round(val) + (id.includes('start') || id.includes('end') ? 'm' : '');
-        };
-
-        set('lod-unit-end', r.unitEnd);
-        set('lod-small-start', r.smallStart);
-        set('lod-small-end', r.smallEnd);
-        set('lod-medium-start', r.mediumStart);
-        set('lod-medium-end', r.mediumEnd);
-        set('lod-large-start', r.largeStart);
-    }
 
     createHexGeometry(radius) {
         // 1. CAP GEOMETRY (Top Face Only)
@@ -1009,8 +891,8 @@ class PistonViewer {
             shader.uniforms.uCameraPos = { value: new THREE.Vector3() };
             shader.uniforms.uLodRadii = { value: new THREE.Vector2(0.0, 100000.0) }; // Min, Max
 
-            // UV Padding correction (64px padding on 4096px base)
-            const pad = 64.0;
+            // UV Padding correction (448px padding on 4096px base — covers largest LOD hex radius)
+            const pad = 448.0;
             const size = 4096.0;
             const total = size + pad * 2;
             shader.uniforms.uUvScale = { value: size / total };
@@ -1244,60 +1126,7 @@ class PistonViewer {
         this.fpsState.lastSample = now;
     }
 
-    updateFrametimeGraph() {
-        if (!this.frametimeCtx) return;
 
-        const now = performance.now();
-        const frametime = now - this.frametimeLastTime;
-        this.frametimeLastTime = now;
-
-        // Update buffer (shift left, add new value on right)
-        this.frametimeBuffer.shift();
-        this.frametimeBuffer.push(frametime);
-
-        const ctx = this.frametimeCtx;
-        const width = this.frametimeCanvas.width;
-        const height = this.frametimeCanvas.height;
-
-        // Clear canvas
-        ctx.fillStyle = '#0a0a0a';
-        ctx.fillRect(0, 0, width, height);
-
-        // Draw grid lines
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 1;
-        // 16.67ms line (60fps)
-        const y60 = height - (16.67 / 50) * height;
-        ctx.beginPath();
-        ctx.moveTo(0, y60);
-        ctx.lineTo(width, y60);
-        ctx.stroke();
-        // 33.33ms line (30fps)
-        const y30 = height - (33.33 / 50) * height;
-        ctx.beginPath();
-        ctx.moveTo(0, y30);
-        ctx.lineTo(width, y30);
-        ctx.stroke();
-
-        // Draw frametime graph
-        ctx.strokeStyle = '#74b9ff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        for (let i = 0; i < this.frametimeBuffer.length; i++) {
-            const ft = Math.min(this.frametimeBuffer[i], 50); // Cap at 50ms for display
-            const x = i;
-            const y = height - (ft / 50) * height;
-            if (i === 0) ctx.moveTo(x, y);
-            else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-
-        // Draw labels
-        ctx.fillStyle = '#666';
-        ctx.font = '10px monospace';
-        ctx.fillText('16.67ms (60fps)', 5, y60 - 3);
-        ctx.fillText('33.33ms (30fps)', 5, y30 - 3);
-    }
 
     // --- CORE LOOP ---
 
@@ -1424,10 +1253,6 @@ class PistonViewer {
     processQueues() {
         const maxConcurrent = this.workers.length;
 
-        this.cacheManager.beginTurn();
-
-        // Sort closest-first so the LRU swap logic can break early:
-        // if the closest new tile isn't worth swapping, nothing behind it is either.
         this.loadQueue.sort((a, b) => a.t.d - b.t.d);
 
         while (this.activeWorkerCount < maxConcurrent && this.loadQueue.length > 0) {
@@ -1440,47 +1265,13 @@ class PistonViewer {
                 continue;
             }
 
-            // --- LRU CACHE LOGIC ---
-            if (!FREIGER_DISABLE_CACHE_EVICTION && !this.cacheManager.canAllocate(ESTIMATED_FULL_TILE_VRAM)) {
-                // Budget is full. Only load if this tile is more valuable
-                // than the worst loaded tile (distance + frustum check).
-                this.projScreenMatrix.multiplyMatrices(
-                    this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-                this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
-
-                const swapped = this.cacheManager.requestSwap(
-                    task.t.d,
-                    this.camera.position,
-                    this.frustum,
-                    this.tiles,
-                    this.unloadTile.bind(this)
-                );
-
-                if (!swapped) {
-                    // What we have is already optimal. Drain the rest of the
-                    // queue — since it's sorted closest-first, nothing behind
-                    // this tile can swap either.
-                    this.loadingTiles.delete(key);
-                    for (const remaining of this.loadQueue) {
-                        this.loadingTiles.delete(`${remaining.t.q}_${remaining.t.r}`);
-                    }
-                    this.loadQueue.length = 0;
-                    break;
-                }
-            }
-
-            // Record download (flags re-downloads of previously evicted tiles)
-            this.cacheManager.recordDownload(key);
-
             this.activeWorkerCount++;
             this.fetchTileOnWorker(task).then(result => {
                 this.activeWorkerCount--;
                 if (result) this.instantiateQueue.push(result);
-                this.processQueues(); // Keep the pipe full
+                this.processQueues();
             });
         }
-
-        this.cacheManager.endTurn();
     }
 
     async fetchTileOnWorker(task) {
@@ -1530,10 +1321,7 @@ class PistonViewer {
         // Final Hygiene Check (Camera might have moved while worker was working)
         if (this.tiles.has(key)) return;
 
-        // --- LEDGER: Track network payload from worker response ---
-        if (workerData.networkBytes) {
-            this.vramLedger.addNetworkPayload(key, workerData.networkBytes);
-        }
+
 
         try {
             // Create ONE full-resolution material for this entire tile (shared across LODs)
@@ -1657,18 +1445,7 @@ class PistonViewer {
             this.updateGlobalStats(workerData.stats);
             this.attachSectorRoute(tileObj);
 
-            // --- LEDGER: Register tile's GPU footprint ---
-            // Geometry bytes pre-computed on worker thread (Graft 3)
-            const geometryBytes = workerData.geometryBytes || 0;
-            // Texture: full-resolution bitmap (worker returns ImageBitmap → CanvasTexture)
-            let textureBytes = 0;
-            if (workerData.texture && workerData.texture.width) {
-                textureBytes = workerData.texture.width * workerData.texture.height * 4;
-            }
-            this.vramLedger.register(key, {
-                geometryBytes, textureBytes,
-                q: t.q, r: t.r, lx: t.lx, lz: t.lz,
-            });
+
 
             this.loadingTiles.delete(key);
 
@@ -1736,7 +1513,7 @@ class PistonViewer {
         this._disposeTileGPU(tile);
 
         // --- LEDGER: Deregister VRAM tracking ---
-        this.vramLedger.deregister(key);
+
 
         this.tiles.delete(key);
         this.loadingTiles.delete(key);
@@ -1964,7 +1741,7 @@ class PistonViewer {
             this.lodRanges = { ...preset };
             this.isRefining = false;
             this.needsRender = true;
-            this.syncLODUI();
+            
         }
     }
 
@@ -2040,7 +1817,7 @@ class PistonViewer {
             this.isRefining = true;
             this.needsRender = true; // Force a frame
             this.needsLODUpdate = true; // FORCE LOD check to recognize new ranges
-            this.syncLODUI();
+            
         } else if (isDone && this.isRefining) {
             this.log("Antisintering Complete: Maximum Resolution Reached.", "success");
             this.isRefining = false;
@@ -2049,119 +1826,7 @@ class PistonViewer {
         return !isDone;
     }
 
-    // --- ENGINE STATE DERIVATION ---
-    deriveEngineState(moved, flat) {
-        // Priority order: MOVING_3D > MOVING_2D > SINTERING > STATIC
-        if (this.isMoving3D) return ENGINE_STATES.MOVING_3D;
-        if (moved || this.isUserInteracting) return flat ? ENGINE_STATES.MOVING_2D : ENGINE_STATES.MOVING_3D;
-        if (this.sinterQueue.length > 0 || this.activeWorkerCount > 0 || this.isRefining) return ENGINE_STATES.SINTERING;
-        return ENGINE_STATES.STATIC;
-    }
 
-    // --- PORCELAIN OUTPUT: Machine-readable stats API for Playwright / automation ---
-    getDetailedStats(phase = 'snapshot') {
-        // Compute spatial breakdown (The Radar)
-        this.projScreenMatrix.multiplyMatrices(
-            this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-        this.frustum.setFromProjectionMatrix(this.projScreenMatrix);
-        const spatial = this.vramLedger.getSpatialBreakdown(
-            this.frustum, this.camera.position, this.tiles);
-
-        const fmt = (b) => {
-            if (b < 1024) return `${b} B`;
-            if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`;
-            if (b < 1073741824) return `${(b / 1048576).toFixed(1)} MB`;
-            return `${(b / 1073741824).toFixed(2)} GB`;
-        };
-
-        const _classVec = new THREE.Vector3();
-        const renderDist = this.renderSettings.renderDistance;
-        let visCount = 0, bufCount = 0, vesCount = 0;
-        let visBytes = 0, bufBytes = 0, vesBytes = 0;
-        let visFull = 0, bufFull = 0, vesFull = 0;
-
-        for (const [key, tile] of this.tiles) {
-            const entry = this.vramLedger.entries.get(key);
-            const bytes = entry ? (entry.geometryBytes + entry.textureBytes) : 0;
-            const inFrustum = tile.bounds && this.frustum.intersectsBox(tile.bounds);
-
-            if (inFrustum) {
-                visCount++; visBytes += bytes;
-                visFull++;
-            } else {
-                _classVec.set(entry?.lx || 0, 0, entry?.lz || 0);
-                const dist = _classVec.distanceTo(this.camera.position);
-                if (dist <= renderDist) {
-                    bufCount++; bufBytes += bytes;
-                    bufFull++;
-                } else {
-                    vesCount++; vesBytes += bytes;
-                    vesFull++;
-                }
-            }
-        }
-
-        return {
-            phase,
-            timestamp: performance.now(),
-            engineState: this.engineState,
-            activeTileCount: this.tiles.size,
-            tileClassification: {
-                visible: { count: visCount, full: visFull, low: 0, vram: fmt(visBytes), bytes: visBytes },
-                buffer: { count: bufCount, full: bufFull, low: 0, vram: fmt(bufBytes), bytes: bufBytes },
-                vestigial: { count: vesCount, full: vesFull, low: 0, vram: fmt(vesBytes), bytes: vesBytes },
-            },
-            vram: {
-                geometryBytes: this.vramLedger.totalGeometryBytes,
-                textureBytes: this.vramLedger.totalTextureBytes,
-                totalBytes: this.vramLedger.totalVRAMBytes,
-                budgetBytes: this.cacheManager.budget,
-                budgetUtilization: +(this.cacheManager.utilization).toFixed(4),
-                // Human-readable
-                geometry: fmt(this.vramLedger.totalGeometryBytes),
-                textures: fmt(this.vramLedger.totalTextureBytes),
-                total: fmt(this.vramLedger.totalVRAMBytes),
-                budget: fmt(this.cacheManager.budget),
-                headroom: fmt(this.cacheManager.headroom),
-            },
-            network: {
-                totalPayloadBytes: this.vramLedger.totalNetworkBytes,
-                binBytes: this.vramLedger._networkBin,
-                texBytes: this.vramLedger._networkTex,
-                // Human-readable
-                total: fmt(this.vramLedger.totalNetworkBytes),
-                bin: fmt(this.vramLedger._networkBin),
-                tex: fmt(this.vramLedger._networkTex),
-            },
-            spatial: {
-                inFrustumBytes: spatial.inFrustumBytes,
-                outFrustumBytes: spatial.outFrustumBytes,
-                nearBytes: spatial.nearBytes,
-                midBytes: spatial.midBytes,
-                farBytes: spatial.farBytes,
-                inFrustumTiles: spatial.tileBreakdown.inFrustum,
-                outFrustumTiles: spatial.tileBreakdown.outFrustum,
-                // Human-readable
-                inFrustum: `${spatial.tileBreakdown.inFrustum} tiles (${fmt(spatial.inFrustumBytes)})`,
-                outFrustum: `${spatial.tileBreakdown.outFrustum} tiles (${fmt(spatial.outFrustumBytes)})`,
-                near: fmt(spatial.nearBytes),
-                mid: fmt(spatial.midBytes),
-                far: fmt(spatial.farBytes),
-            },
-            tiles: {
-                loaded: this.tiles.size,
-                loadQueue: this.loadQueue.length,
-                sinterQueue: this.sinterQueue.length,
-                activeWorkers: this.activeWorkerCount,
-                materialsTracked: this.materialsToUpdate.size,
-                evictedTotal: this.cacheManager.evictionCount,
-                evictedBytes: fmt(this.cacheManager.evictedBytes),
-                redownloads: this.cacheManager.redownloadCount,
-            },
-            violations: this._perfViolationCount,
-            allocationCount: this.vramLedger.entries.size,
-        };
-    }
 
     animate() {
         requestAnimationFrame(() => this.animate());
@@ -2198,8 +1863,7 @@ class PistonViewer {
         this.isMoving3D = !flat && (moved || this.isUserInteracting);
         this.updateRouteVisibility(flat);
 
-        // --- DERIVE ENGINE STATE (must happen after moved/flat/isMoving3D are set) ---
-        this.engineState = this.deriveEngineState(moved, flat);
+
 
         // NOW update LOD (after isMoving3D is set)
         const camDist = this.camera.position.distanceTo(this.lastLODCamPos);
@@ -2218,7 +1882,7 @@ class PistonViewer {
 
         this.updateRenderStats(now);
         this.updateFps();
-        this.updateFrametimeGraph();
+
 
         const linear = Math.min(1, Math.max(0, (angle - 5.5) / (25.0 - 5.5)));
         const h = linear;
@@ -2234,7 +1898,7 @@ class PistonViewer {
             const target = this.isMobile ? this.LOD_CONFIG.MOBILE.TARGET : this.LOD_CONFIG.DESKTOP.TARGET;
             this.lodRanges = { ...target };
             this.needsLODUpdate = true;
-            this.syncLODUI();
+            
             this.lodTransitionInProgress = true;
             this.lastLodPreset = 'TARGET';
         }
@@ -2321,63 +1985,7 @@ class PistonViewer {
         // --- RENDER ---
         this.renderer.render(this.scene, this.camera);
 
-        // ===== END TIMED RENDER CYCLE =====
-        const cycleDuration = performance.now() - cycleStart;
-        const budget = STATE_BUDGETS_MS[this.engineState];
 
-        // --- STRUCTURED VIOLATION LOGGING ---
-        if (cycleDuration > budget) {
-            this._perfViolationCount++;
-
-            if (this._perfViolationCount <= PERF_VERBOSE_MAX) {
-                // VERBOSE: Full-fat output for first N violations
-                const culprits = [];
-                if (visibilityChanges > 50) culprits.push(`vis-thrash:${visibilityChanges}`);
-                if (needsUpdateCount > 0) culprits.push(`mat-recompile:${needsUpdateCount}`);
-                if (this.sinterQueue.length > 0) culprits.push(`sinter-queue:${this.sinterQueue.length}`);
-                if (this.lodTransitionInProgress) culprits.push('lod-transition');
-                if (culprits.length === 0) culprits.push('gpu-render');
-
-                console.log('[PERF_VIOLATION] ' + JSON.stringify({
-                    state: this.engineState,
-                    duration: +cycleDuration.toFixed(1),
-                    budget,
-                    culprits,
-                    frame: this._frameCounter
-                }));
-            } else {
-                // STATISTICAL: Accumulate silently, flush every PERF_STATS_WINDOW violations
-                const st = this.engineState;
-                if (!this._perfStats[st]) this._perfStats[st] = { min: Infinity, max: -Infinity, sum: 0, count: 0 };
-                const s = this._perfStats[st];
-                s.min = Math.min(s.min, cycleDuration);
-                s.max = Math.max(s.max, cycleDuration);
-                s.sum += cycleDuration;
-                s.count++;
-
-                const accumulated = Object.values(this._perfStats).reduce((a, b) => a + b.count, 0);
-                if (accumulated >= PERF_STATS_WINDOW) {
-                    const summary = {};
-                    for (const [state, data] of Object.entries(this._perfStats)) {
-                        summary[state] = {
-                            count: data.count,
-                            avg: +(data.sum / data.count).toFixed(1),
-                            min: +data.min.toFixed(1),
-                            max: +data.max.toFixed(1)
-                        };
-                    }
-                    console.log('[PERF_VIOLATION] ' + JSON.stringify({
-                        type: 'stats',
-                        totalViolations: this._perfViolationCount,
-                        window: PERF_STATS_WINDOW,
-                        summary,
-                        frame: this._frameCounter
-                    }));
-                    // Reset accumulators for next window
-                    this._perfStats = {};
-                }
-            }
-        }
 
         // Consume transition flag (allow one frame grace)
         if (this.lodTransitionInProgress) this.lodTransitionInProgress = false;
