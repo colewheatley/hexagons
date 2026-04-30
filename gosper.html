@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gosper Hex Engine</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #020617;
+            --card-bg: rgba(15, 23, 42, 0.7);
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.3);
+            --pink: #f472b6;
+            --pink-glow: rgba(244, 114, 182, 0.3);
+            --success: #34d399;
+            --error: #fb7185;
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+            --border: rgba(51, 65, 85, 0.8);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Outfit', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 40px 20px;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 80% 80%, rgba(244, 114, 182, 0.05) 0%, transparent 40%);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            max-width: 800px;
+        }
+
+        h1 {
+            font-size: 3rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            background: linear-gradient(to right, #38bdf8, #818cf8, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+
+        p {
+            color: var(--text-dim);
+            font-size: 1.1rem;
+            line-height: 1.6;
+        }
+
+        .main-layout {
+            display: flex;
+            gap: 40px;
+            align-items: flex-start;
+            width: 100%;
+            max-width: 1200px;
+            justify-content: center;
+        }
+
+        .glass-panel {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+        }
+
+        .controls {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-dim);
+            font-weight: 600;
+        }
+
+        select {
+            background: rgba(15, 23, 42, 0.5);
+            color: var(--accent);
+            border: 1px solid var(--border);
+            padding: 12px;
+            border-radius: 12px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2338bdf8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 40px;
+        }
+
+        select:hover {
+            border-color: var(--accent);
+            background-color: rgba(15, 23, 42, 0.8);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #38bdf8, #818cf8);
+            color: white;
+            border: none;
+            padding: 16px;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 15px var(--accent-glow);
+            margin-top: 10px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px var(--accent-glow);
+            filter: brightness(1.1);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .viz-container {
+            position: relative;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #hex-svg {
+            filter: drop-shadow(0 0 30px rgba(0, 0, 0, 0.5));
+            max-width: 100%;
+        }
+
+        .status-badge {
+            margin-top: 24px;
+            padding: 16px 32px;
+            border-radius: 16px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            transition: all 0.5s ease;
+            width: 100%;
+            text-align: center;
+            border: 1px solid transparent;
+        }
+
+        .status-success {
+            background: rgba(52, 211, 153, 0.1);
+            color: var(--success);
+            border-color: rgba(52, 211, 153, 0.3);
+            box-shadow: 0 0 20px rgba(52, 211, 153, 0.1);
+        }
+
+        .status-error {
+            background: rgba(251, 113, 133, 0.1);
+            color: var(--error);
+            border-color: rgba(251, 113, 133, 0.3);
+            box-shadow: 0 0 20px rgba(251, 113, 133, 0.1);
+        }
+
+        .vector-map {
+            margin-top: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            background: rgba(0, 0, 0, 0.2);
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            text-align: center;
+        }
+
+        .vector-map span {
+            color: var(--accent);
+        }
+
+        .level-slider-container {
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: var(--border);
+            border-radius: 5px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+
+        .solution-count {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.6; }
+            50% { transform: scale(1.05); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 0.6; }
+        }
+
+        .origin-glow {
+            animation: pulse 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="header">
+        <h1>Gosper Hex Engine</h1>
+        <p>A 7-hex Gosper Island is formed by a center hex and its six immediate neighbors. Can you find the single continuous path that visits every hex in the cluster exactly once?</p>
+    </div>
+
+    <div class="main-layout">
+        <div class="controls glass-panel">
+            <div id="step-controls"></div>
+            
+            <button class="btn-primary" onclick="solveAndApply()">Auto-Solve Engine</button>
+            <div id="solution-info" class="solution-count">12 valid sequences exist.</div>
+
+            <div class="level-slider-container">
+                <div style="display: flex; justify-content: space-between;">
+                    <label>Recursive Level</label>
+                    <span id="level-val" style="color: var(--accent); font-weight: bold;">1</span>
+                </div>
+                <input type="range" id="level-slider" min="1" max="4" value="1" oninput="updateLevel(this.value)">
+            </div>
+
+            <div class="vector-map">
+                <div>N: <span>(0,-1)</span></div>
+                <div>NE: <span>(1,-1)</span></div>
+                <div>SE: <span>(1,0)</span></div>
+                <div>S: <span>(0,1)</span></div>
+                <div>SW: <span>(-1,1)</span></div>
+                <div>NW: <span>(-1,0)</span></div>
+            </div>
+        </div>
+
+        <div class="viz-container">
+            <div class="glass-panel" style="padding: 10px; border-radius: 32px;">
+                <svg id="hex-svg" width="600" height="600" viewBox="-300 -300 600 600"></svg>
+            </div>
+            <div id="status-msg" class="status-badge status-error">Incomplete Cluster</div>
+        </div>
+    </div>
+
+    <script>
+        const directions = {
+            "North": { q: 0, r: -1 },
+            "North-East": { q: 1, r: -1 },
+            "South-East": { q: 1, r: 0 },
+            "South": { q: 0, r: 1 },
+            "South-West": { q: -1, r: 1 },
+            "North-West": { q: -1, r: 0 }
+        };
+
+        const hexSize = 35;
+        const stepsCount = 6;
+        let userSteps = Array(stepsCount).fill("North");
+        let currentLevel = 1;
+
+        // UI Initialization
+        const stepControls = document.getElementById('step-controls');
+        for (let i = 0; i < stepsCount; i++) {
+            const group = document.createElement('div');
+            group.className = 'control-group';
+            group.style.marginBottom = '12px';
+            group.innerHTML = `<label>Vector ${i + 1}</label>`;
+            const select = document.createElement('select');
+            select.id = `select-${i}`;
+            for (let dir in directions) {
+                const opt = document.createElement('option');
+                opt.value = dir;
+                opt.textContent = dir;
+                select.appendChild(opt);
+            }
+            
+            // Default "ring" pattern
+            const keys = Object.keys(directions);
+            select.value = keys[i];
+            userSteps[i] = keys[i];
+
+            select.onchange = (e) => {
+                userSteps[i] = e.target.value;
+                update();
+            };
+            group.appendChild(select);
+            stepControls.appendChild(group);
+        }
+
+        function hexToPixel(q, r, size = hexSize) {
+            const x = size * (3 / 2) * q;
+            const y = size * Math.sqrt(3) * (r + q / 2);
+            return { x, y };
+        }
+
+        function createHexPath(size) {
+            let pts = [];
+            for (let i = 0; i < 6; i++) {
+                const angle = (Math.PI / 180) * (i * 60);
+                pts.push(`${size * Math.cos(angle)},${size * Math.sin(angle)}`);
+            }
+            return pts.join(" ");
+        }
+
+        function solveAndApply(silent = false) {
+            const keys = Object.keys(directions);
+            const neighbors = ["0,-1", "1,-1", "1,0", "0,1", "-1,1", "-1,0"];
+            let solutions = [];
+            
+            function backtrack(path, current, visited) {
+                if (path.length === 6) {
+                    if (neighbors.every(n => visited.has(n)) && visited.size === 7) {
+                        solutions.push([...path]);
+                    }
+                    return;
+                }
+                for (let dirName of keys) {
+                    const vec = directions[dirName];
+                    const next = { q: current.q + vec.q, r: current.r + vec.r };
+                    const key = `${next.q},${next.r}`;
+                    if (!visited.has(key)) {
+                        visited.add(key);
+                        path.push(dirName);
+                        backtrack(path, next, visited);
+                        path.pop();
+                        visited.delete(key);
+                    }
+                }
+            }
+            backtrack([], { q: 0, r: 0 }, new Set(["0,0"]));
+            
+            if (solutions.length > 0) {
+                const sol = solutions[Math.floor(Math.random() * solutions.length)];
+                sol.forEach((dir, i) => {
+                    document.getElementById(`select-${i}`).value = dir;
+                    userSteps[i] = dir;
+                });
+                if (!silent) update();
+            }
+        }
+
+        function getFractalHexes(level) {
+            let current = { q: 0, r: 0 };
+            let S = [{ ...current }];
+            for (let stepDir of userSteps) {
+                const vec = directions[stepDir];
+                current.q += vec.q;
+                current.r += vec.r;
+                S.push({ ...current });
+            }
+
+            if (level === 1) return S;
+
+            let prevHexes = getFractalHexes(level - 1);
+            let newHexes = [];
+
+            // Tiling Matrix for Flat-Top Gosper Island
+            function applyM(pt) {
+                return {
+                    q: 2 * pt.q - pt.r,
+                    r: pt.q + 3 * pt.r
+                };
+            }
+
+            // Centers of the sub-clusters are M^(level-1) * p
+            let centers = S.map(p => {
+                let res = { ...p };
+                for (let i = 0; i < level - 1; i++) {
+                    res = applyM(res);
+                }
+                return res;
+            });
+
+            centers.forEach(center => {
+                prevHexes.forEach(h => {
+                    newHexes.push({
+                        q: center.q + h.q,
+                        r: center.r + h.r
+                    });
+                });
+            });
+
+            return newHexes;
+        }
+
+        function updateLevel(val) {
+            currentLevel = parseInt(val);
+            document.getElementById('level-val').textContent = val;
+            update();
+        }
+
+        function update() {
+            const svg = document.getElementById('hex-svg');
+            const status = document.getElementById('status-msg');
+            svg.innerHTML = '';
+
+            const displaySize = hexSize / Math.pow(Math.sqrt(7), currentLevel - 1);
+            
+            // Background Grid (only for Level 1 to keep it clean)
+            if (currentLevel === 1) {
+                for (let q = -5; q <= 5; q++) {
+                    for (let r = -5; r <= 5; r++) {
+                        const dist = Math.abs(q) + Math.abs(r) + Math.abs(-q-r);
+                        if (dist > 10) continue;
+                        const { x, y } = hexToPixel(q, r, hexSize);
+                        const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+                        poly.setAttribute("points", createHexPath(hexSize - 1));
+                        poly.setAttribute("transform", `translate(${x},${y})`);
+                        poly.setAttribute("fill", "#0f172a");
+                        poly.setAttribute("stroke", "rgba(51, 65, 85, 0.3)");
+                        svg.appendChild(poly);
+                    }
+                }
+            }
+
+            let path = getFractalHexes(currentLevel);
+            let polylinePoints = [];
+
+            path.forEach((pos, i) => {
+                const { x, y } = hexToPixel(pos.q, pos.r, displaySize);
+                if (currentLevel === 1) polylinePoints.push(`${x},${y}`);
+
+                const hex = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
+                hex.setAttribute("points", createHexPath(displaySize * 0.95));
+                hex.setAttribute("transform", `translate(${x},${y})`);
+                
+                // Styling
+                if (i === 0 && currentLevel === 1) {
+                    hex.setAttribute("fill", "var(--accent)");
+                    hex.classList.add("origin-glow");
+                } else {
+                    hex.setAttribute("fill", "var(--pink)");
+                }
+                hex.setAttribute("fill-opacity", "0.6");
+                svg.appendChild(hex);
+
+                if (currentLevel === 1) {
+                    const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    text.setAttribute("x", x);
+                    text.setAttribute("y", y + 4);
+                    text.setAttribute("text-anchor", "middle");
+                    text.setAttribute("fill", "white");
+                    text.setAttribute("font-size", "10");
+                    text.setAttribute("font-family", "JetBrains Mono");
+                    text.textContent = i;
+                    svg.appendChild(text);
+                }
+            });
+
+            // Validation (Level 1 only)
+            if (currentLevel === 1) {
+                let current = { q: 0, r: 0 };
+                let visited = new Set(["0,0"]);
+                let overlap = false;
+                for (let stepDir of userSteps) {
+                    const vec = directions[stepDir];
+                    current.q += vec.q;
+                    current.r += vec.r;
+                    const key = `${current.q},${current.r}`;
+                    if (visited.has(key)) overlap = true;
+                    visited.add(key);
+                }
+
+                const neighbors = ["0,-1", "1,-1", "1,0", "0,1", "-1,1", "-1,0"];
+                const isPerfect = !overlap && neighbors.every(n => visited.has(n)) && visited.size === 7;
+
+                if (isPerfect) {
+                    status.textContent = "Perfect Gosper Seed Achieved";
+                    status.className = "status-badge status-success";
+                } else if (overlap) {
+                    status.textContent = "Path Overlap Detected";
+                    status.className = "status-badge status-error";
+                } else {
+                    status.textContent = "Incomplete Cluster";
+                    status.className = "status-badge status-error";
+                }
+            } else {
+                status.textContent = `Level ${currentLevel} Gosper Fractal`;
+                status.className = "status-badge status-success";
+            }
+        }
+
+        // Initialize with a solution
+        solveAndApply(true);
+        update();
+    </script>
+</body>
+
+</html>

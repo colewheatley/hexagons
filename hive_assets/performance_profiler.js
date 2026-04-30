@@ -76,22 +76,45 @@ import path from 'path';
     }
 
     const captureState = async (phaseName) => {
-        console.log(`📸 Capturing Phase: ${phaseName.padEnd(15)}`);
-        await page.waitForTimeout(500); // Let UI settle
-        await page.screenshot({ path: path.join(outputDir, `${phaseName}.png`) });
+        console.log(`📸 ${phaseName}`);
+        await page.waitForTimeout(500);
+        const screenshotPath = path.join(outputDir, `${phaseName}.png`);
+        await page.screenshot({ path: screenshotPath });
 
-        // Force explicit memory dump from the app's new architecture
-        await page.evaluate((phase) => {
+        // Black-screen detector: a blank 1280x720 PNG is ~19 KB.
+        // Real terrain renders are >100 KB. Use file size as proxy.
+        const fileSize = fs.statSync(screenshotPath).size;
+        const isBlack = fileSize < 50_000;
+        if (isBlack) console.log(`   ⚠️  BLACK SCREEN DETECTED (${(fileSize / 1024).toFixed(0)} KB — expected >100 KB)`);
+
+        // Get stats
+        const stats = await page.evaluate((phase) => {
             if (window.pistonViewer && window.pistonViewer.getDetailedStats) {
-                const stats = window.pistonViewer.getDetailedStats(phase);
-                console.log('[MEMORY_REPORT] ' + JSON.stringify(stats));
+                return window.pistonViewer.getDetailedStats(phase);
             }
+            return null;
         }, phaseName);
 
-        // Capture CDP JS Heap
+        if (stats) {
+            metrics.memorySnapshots.push(stats);
+            const c = stats.tileClassification;
+            if (c) {
+                const row = (label, emoji, d) =>
+                    `   ${emoji} ${label.padEnd(10)} ${String(d.count).padStart(3)} tiles (${String(d.full).padStart(2)} full + ${String(d.low).padStart(2)} low) = ${d.vram}`;
+                console.log(row('Visible', '🟢', c.visible));
+                console.log(row('Buffer', '🟡', c.buffer));
+                console.log(row('Vestigial', '⚪', c.vestigial));
+            }
+            const t = stats.tiles;
+            const v = stats.vram;
+            console.log(`   💾 ${v.total} / ${v.budget} (${(v.budgetUtilization * 100).toFixed(0)}%)  |  Evicted: ${t.evictedTotal}  Re-downloads: ${t.redownloads}`);
+        }
+
         const perfData = await client.send('Performance.getMetrics');
         const jsHeap = perfData.metrics.find(m => m.name === 'JSHeapUsedSize');
-        if (jsHeap) console.log(`   -> CDP JS Heap: ${Math.round(jsHeap.value / (1024 * 1024))} MB`);
+        if (jsHeap) console.log(`   🧠 JS Heap: ${Math.round(jsHeap.value / (1024 * 1024))} MB`);
+
+        return { isBlack, stats };
     };
 
     const canvas = await page.$('canvas');
@@ -108,29 +131,75 @@ import path from 'path';
         if (modifier) await page.keyboard.up(modifier);
     };
 
-    // --- PHASE 1: 2D MOVING ---
-    console.log('\n🏃 Executing: 2D Moving');
-    await drag(-300, 0, 20);
-    await page.waitForTimeout(200);
-    await drag(300, 0, 20);
-    await captureState('01_moving_2d');
+    // ═══════════════════════════════════════════════════════════════
+    // BASELINE — Confirm rendering before any movement
+    // ═══════════════════════════════════════════════════════════════
+    console.log('\n═══ BASELINE ═══');
+    await page.waitForTimeout(3000); // Extra settle time for initial tile load
+    const baseline = await captureState('00_baseline');
+    if (baseline.isBlack) {
+        console.log('❌ FATAL: Initial render is BLACK. Aborting test — no tiles visible.');
+        await context.tracing.stop({ path: path.join(outputDir, 'trace.zip') });
+        fs.writeFileSync(path.join(outputDir, 'metrics.json'), JSON.stringify(metrics, null, 2));
+        await browser.close();
+        process.exit(1);
+    }
 
-    // --- PHASE 2: 3D MOVING ---
-    console.log('\n🏔️ Executing: 3D Moving');
-    await drag(0, -150, 20, 'Control'); // Pitch up into 3D
-    await page.waitForTimeout(200);
-    await drag(-400, 50, 30); // Long 3D pan
-    await captureState('02_moving_3d');
+    // ═══════════════════════════════════════════════════════════════
+    // SUB 1: 2D STRESS — Westward scroll + eastward cache test
+    // ═══════════════════════════════════════════════════════════════
+    console.log('\n═══ SUB 1: 2D STRESS ═══');
 
-    // --- PHASE 3: SINTERING ---
-    console.log('\n🔥 Executing: Sintering (Waiting 6s for worker queues)');
+    // Westward scroll (8× 400px ≈ 6.5 km, enough to force evictions at 5 GB)
+    console.log('   → Scrolling west (8 drags)...');
+    for (let i = 0; i < 8; i++) {
+        await drag(400, 0, 25);
+        await page.waitForTimeout(100);
+    }
+    await captureState('01_2d_scrolled_west');
+
+    // Eastward return — should hit cache (zero new re-downloads)
+    console.log('   ↩️  Returning east (cache test, 500px)...');
+    await drag(-500, 0, 25);
+    await page.waitForTimeout(300);
+    await captureState('02_2d_cache_return');
+
+    // ═══════════════════════════════════════════════════════════════
+    // SUB 2: 3D STRESS — Mild tilt + multi-direction exploration
+    // ═══════════════════════════════════════════════════════════════
+    console.log('\n═══ SUB 2: 3D STRESS ═══');
+
+    // Mild ~20° tilt into 3D
+    await drag(0, -30, 20, 'Control');
+    await page.waitForTimeout(300);
+
+    // Explore: pan west, south, east, north
+    console.log('   → Exploring 3D (4 direction pans)...');
+    await drag(300, 0, 20); await page.waitForTimeout(100);
+    await drag(0, 200, 20); await page.waitForTimeout(100);
+    await drag(-300, 0, 20); await page.waitForTimeout(100);
+    await drag(0, -200, 20); await page.waitForTimeout(100);
+
+    // Additional long westward 3D pan
+    console.log('   → Long 3D westward pan (5 drags)...');
+    for (let i = 0; i < 5; i++) {
+        await drag(300, 20, 20);
+        await page.waitForTimeout(80);
+    }
+    await captureState('03_3d_explored');
+
+    // ═══════════════════════════════════════════════════════════════
+    // SUB 3: SETTLING — Sintering + static rest
+    // ═══════════════════════════════════════════════════════════════
+    console.log('\n═══ SUB 3: SETTLING ═══');
+
+    console.log('   🔥 Sintering (6s)...');
     await page.waitForTimeout(6000);
-    await captureState('03_sintering');
+    await captureState('04_sintered');
 
-    // --- PHASE 4: STATIC SINTERED ---
-    console.log('\n🧘 Executing: Static Rest (Waiting 2s)');
-    await page.waitForTimeout(2000); // Should be completely silent (0 violations)
-    await captureState('04_static_sintered');
+    console.log('   🧘 Static rest (2s)...');
+    await page.waitForTimeout(2000);
+    await captureState('05_static');
 
     // Stop Tracing
     console.log('\n💾 Saving Traces & Reports...');

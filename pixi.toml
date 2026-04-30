@@ -1,0 +1,24 @@
+# Hexagons – hexagonal terrain tile baker for the Powfinder ski area explorer
+# Deps: rasterio, shapely, pyproj, pillow, numpy (all native ARM64 on conda-forge)
+[workspace]
+name = "hexagons"
+version = "0.1.0"
+description = "Hexagons – hexagonal terrain tile baker and aerial imagery pipeline"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+[dependencies]
+python = "3.12.*"
+numpy = "*"
+rasterio = "*"
+shapely = "*"
+pyproj = "*"
+pillow = "*"
+scipy = "*"
+tqdm = "*"
+requests = "*"
+ipykernel = "*"
+
+[tasks]
+bake      = "python hex_backend/waffle_iron.py"
+bake-mini = "python hex_backend/waffle_iron.py --grid 6"
