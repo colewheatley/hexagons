@@ -5,10 +5,16 @@
   "type": "module",
   "scripts": {
     "route:build": "pixi run python scripts/build-freiger-route-assets.py",
-    "build": "node scripts/build-capacitor-web.mjs",
+    "build": "node scripts/build-capacitor-web.mjs --variant=web",
+    "build:web": "node scripts/build-capacitor-web.mjs --variant=web",
+    "build:apk-low": "node scripts/build-capacitor-web.mjs --variant=apk-low",
+    "build:apk-high": "node scripts/build-capacitor-web.mjs --variant=apk-high",
     "cap:add:android": "cap add android",
     "cap:sync": "cap sync",
-    "android:debug": "cd android && ./gradlew assembleDebug"
+    "android:debug": "cd android && ./gradlew assembleDebug",
+    "apk:low": "npm run build:apk-low && npx cap sync && cd android && ./gradlew assembleDebug && cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/hexagons-freiger-low.apk",
+    "apk:high": "npm run build:apk-high && npx cap sync && cd android && ./gradlew assembleDebug && cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/hexagons-freiger-high.apk",
+    "deploy": "./scripts/deploy-freiger.sh"
   },
   "dependencies": {
     "@capacitor/core": "^7.0.0",

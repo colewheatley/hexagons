@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hexagons — Wilder Freiger</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #080c0a;
+            color: #f0ede4;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 32px 24px;
+            background: radial-gradient(ellipse at 60% 20%, #0d2b1a 0%, #080c0a 60%);
+        }
+        main { width: min(520px, 100%); }
+        .eyebrow {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #5a9e72;
+            margin-bottom: 12px;
+        }
+        h1 {
+            font-size: clamp(36px, 9vw, 60px);
+            font-weight: 700;
+            line-height: 0.95;
+            margin-bottom: 16px;
+            letter-spacing: -0.02em;
+        }
+        p {
+            font-size: 16px;
+            line-height: 1.6;
+            color: #a8a097;
+            margin-bottom: 40px;
+        }
+        .buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        a.btn {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 18px 22px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 16px;
+            transition: opacity 0.15s;
+            border: 1px solid transparent;
+        }
+        a.btn:active { opacity: 0.75; }
+        a.btn .icon {
+            font-size: 26px;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        a.btn .label { flex: 1; }
+        a.btn .sub {
+            font-size: 12px;
+            font-weight: 400;
+            color: inherit;
+            opacity: 0.65;
+            display: block;
+            margin-top: 2px;
+        }
+        .btn-android-low {
+            background: #1a3d28;
+            border-color: #2d6644;
+            color: #c8f0d8;
+        }
+        .btn-android-low:hover { background: #1f4a30; }
+        .btn-android-high {
+            background: #2a2a1a;
+            border-color: #5a5020;
+            color: #f0e8b0;
+        }
+        .btn-android-high:hover { background: #333320; }
+        .btn-ios {
+            background: #1a1f2e;
+            border-color: #2d3550;
+            color: #c8d4f0;
+        }
+        .btn-ios:hover { background: #1f253a; }
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: #3a3830;
+            font-size: 12px;
+            margin: 4px 0;
+        }
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #2a2820;
+        }
+        .footer {
+            margin-top: 48px;
+            font-size: 12px;
+            color: #4a4840;
+        }
+        .footer a { color: #5a9e72; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <main>
+        <div class="eyebrow">Hexagons · Tour Edition</div>
+        <h1>Wilder Freiger</h1>
+        <p>Offline 3D terrain viewer for the Freiger ski tour. Pick your poison.</p>
+
+        <div class="buttons">
+            <a class="btn btn-android-low" href="hexagons-freiger-low.apk" download>
+                <span class="icon">🤖</span>
+                <span class="label">
+                    Garbage Android
+                    <span class="sub">~47 MB · most phones</span>
+                </span>
+            </a>
+
+            <a class="btn btn-ios" href="app/">
+                <span class="icon">🍎</span>
+                <span class="label">
+                    iPhone
+                    <span class="sub">opens in Safari · no install</span>
+                </span>
+            </a>
+        </div>
+
+        <div class="footer">
+            Enable <em>Install from Unknown Sources</em> in Android settings before installing the APK.
+        </div>
+    </main>
+</body>
+</html>

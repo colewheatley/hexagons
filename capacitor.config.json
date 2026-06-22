@@ -2,5 +2,11 @@
   "appId": "cloud.wheatley.hexagons.freiger",
   "appName": "Hexagons Freiger",
   "webDir": "dist",
-  "bundledWebRuntime": false
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "webContentsDebuggingEnabled": false
+  }
 }

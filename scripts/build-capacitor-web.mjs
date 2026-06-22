@@ -1,9 +1,22 @@
 import { access, cp, mkdir, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 
 const root = process.cwd();
 const dist = path.join(root, "dist");
-const freigerSectorBounds = { minQ: 76, maxQ: 82, minR: 246, maxR: 255 };
+
+// Accept --variant=web|apk-low|apk-high (default: web)
+const variantArg = process.argv.find((a) => a.startsWith("--variant="));
+const VARIANT = variantArg ? variantArg.split("=")[1] : "web";
+const VALID_VARIANTS = ["web", "apk-low", "apk-high"];
+if (!VALID_VARIANTS.includes(VARIANT)) {
+  console.error(`Unknown variant "${VARIANT}". Use one of: ${VALID_VARIANTS.join(", ")}`);
+  process.exit(1);
+}
+console.log(`Building variant: ${VARIANT}`);
+
+// Only bundle the sectors that actually appear in tile_manifest.json
+const freigerSectorBounds = { minQ: 77, maxQ: 80, minR: 248, maxR: 254 };
 
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
@@ -67,6 +80,28 @@ await pruneSectorDirectory(path.join(dist, "tiles_bin"));
 await pruneSectorDirectory(path.join(dist, "aerial_tiles", "full"));
 await writeFreigerManifest();
 
+// Repackage aerials for variant (resizes web/apk-low to 2048², lossless pass-through for apk-high)
+if (VARIANT !== "apk-high") {
+  execFileSync(
+    "python3",
+    [
+      path.join(root, "scripts", "repackage-aerials.py"),
+      "--variant", VARIANT,
+      "--dir", path.join(dist, "aerial_tiles", "full"),
+    ],
+    { stdio: "inherit" }
+  );
+}
+
+// Inject variant meta tag into dist/index.html
+const indexPath = path.join(dist, "index.html");
+let indexHtml = await readFile(indexPath, "utf8");
+indexHtml = indexHtml.replace(
+  "<!-- {{HEXAGONS_VARIANT}} -->",
+  `<meta name="hexagons-variant" content="${VARIANT}">`
+);
+await writeFile(indexPath, indexHtml);
+
 await mkdir(path.join(dist, "vendor", "three", "build"), { recursive: true });
 await mkdir(path.join(dist, "vendor", "three", "examples", "jsm", "controls"), { recursive: true });
 await cp(
@@ -80,13 +115,18 @@ for (const file of ["MapControls.js", "OrbitControls.js"]) {
   );
 }
 
-if (process.env.FREIGER_INCLUDE_APK === "1") {
+// Only bundle the APK into the web deployment (for the S3 download page).
+// Never include it during APK builds — it creates a self-referential loop.
+if (VARIANT === "web") {
   const debugApk = path.join(root, "android", "app", "build", "outputs", "apk", "debug", "app-debug.apk");
   try {
     await access(debugApk);
     await mkdir(path.join(dist, "apk"), { recursive: true });
     await cp(debugApk, path.join(dist, "apk", "hexagons-freiger-debug.apk"));
+    console.log("Bundled APK into web dist for download page.");
   } catch {
-    // The APK appears only after the Android build; web deploy builds should still work before that.
+    // APK not yet built; web deploy without it is still valid.
   }
 }
+
+console.log(`Build complete → dist/ (variant: ${VARIANT})`);

@@ -85,6 +85,42 @@ Then open `http://localhost:8099/`.
 - **Sector size**: 128×128 hexes = 819.2 meters
 - **Hex coordinate encoding**: Axial (q, r)
 
+## Freiger Branch — Three-Variant Offline Build
+
+> **This section only applies to the `freiger` branch.** It is a one-shot, offline build for the Wilder Freiger ski tour (28 fixed sectors). The main `master` branch streams tiles from S3 and has no APK pipeline.
+
+Three artefacts are produced from the same source app, selected at build time via `--variant`:
+
+| Variant | Textures | VRAM (28 tiles) | Target |
+|---|---|---|---|
+| `web` | webp q=10 @ 2048² | ~450 MB | Desktop / iPhone (streamed from wheatley.cloud) |
+| `apk-low` | webp q=85 @ 2048² | ~175 MB | Older Android phones |
+| `apk-high` | webp lossless @ 4992² | ~2.8 GB | High-RAM Android (12 GB+) |
+
+### Build Requirements
+```bash
+brew install openjdk@21 android-commandlinetools   # first time only
+yes | sdkmanager "platforms;android-34" "build-tools;34.0.0" "platform-tools"
+```
+
+### Workflow
+
+```bash
+# 1. Bake hi-res lossless tiles from freiger/orthos/source (once, ~8 min)
+./hex_backend/run_freiger_bake.sh
+
+# 2. Build APKs
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+export JAVA_HOME=$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home
+export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools
+
+npm run apk:high   # → android/app/build/outputs/apk/debug/app-debug.apk (~1.6 GB)
+npm run apk:low    # → android/app/build/outputs/apk/debug/app-debug.apk (~47 MB)
+npm run build:web  # → dist/ for S3 deployment
+```
+
+Rename each APK after building (gradle always outputs to the same path).
+
 ## Sandbox Worktrees
 
 For isolated development (e.g., frontend changes without affecting baked data), use the worktree script:

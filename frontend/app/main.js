@@ -54,6 +54,11 @@ const LIGHTING_DEFAULTS = {
 class PistonViewer {
     constructor() {
         console.log(`[HEXAGONS] ${APP_VERSION} — loading...`);
+
+        const variantMeta = document.querySelector('meta[name="hexagons-variant"]');
+        const VARIANT = variantMeta ? variantMeta.content : 'web';
+        this.isAPK = VARIANT.startsWith('apk');
+
         this.container = document.getElementById('canvas-container');
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x0a0a0a); // Dark Grey
@@ -61,9 +66,13 @@ class PistonViewer {
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 10, 50000);
         this.camera.position.set(0, 800, 0);
 
-        this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+        this.renderer = new THREE.WebGLRenderer({
+            antialias: !this.isAPK,
+            preserveDrawingBuffer: false,
+            powerPreference: 'high-performance',
+        });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, this.isAPK ? 1.5 : 2));
         this.container.appendChild(this.renderer.domElement);
 
         this.controls = new MapControls(this.camera, this.renderer.domElement);
@@ -71,7 +80,7 @@ class PistonViewer {
         this.controls.dampingFactor = 0.08;
         this.controls.screenSpacePanning = false;
         this.controls.minDistance = 100;
-        this.controls.maxDistance = 50000;
+        this.controls.maxDistance = this.isAPK ? 6000 : 50000;
         this.controls.maxPolarAngle = Math.PI / 2.1;
 
         // INTERACTION STATE TRACKING
@@ -156,7 +165,7 @@ class PistonViewer {
         this.globalStats = { min: Infinity, max: -Infinity, avgSum: 0.0, baseSum: 0.0, count: 0 };
         this.frustum = new THREE.Frustum();
         this.projScreenMatrix = new THREE.Matrix4();
-        this.renderSettings = { renderDistance: DEFAULT_RENDER_DISTANCE };
+        this.renderSettings = { renderDistance: this.isAPK ? 6000 : DEFAULT_RENDER_DISTANCE };
         this.routeLayer = null;
         this.route3DGlobalLayer = null;
         this.routeSectorMeshes = new Map();
@@ -207,8 +216,9 @@ class PistonViewer {
     }
 
     initWorkers() {
-        // Create a pool based on concurrency (clamped to 4-6)
-        const count = Math.min(6, Math.max(2, navigator.hardwareConcurrency || 4));
+        const count = this.isAPK
+            ? Math.min(3, Math.max(1, navigator.hardwareConcurrency || 2))
+            : Math.min(6, Math.max(2, navigator.hardwareConcurrency || 4));
         // Workers initialized silently
 
         for (let i = 0; i < count; i++) {
@@ -1331,6 +1341,10 @@ class PistonViewer {
                 initialTex = new THREE.CanvasTexture(workerData.texture);
                 initialTex.colorSpace = THREE.SRGBColorSpace; // Fix "Ghostly Hue"
                 initialTex.flipY = false;
+                initialTex.generateMipmaps = false;
+                initialTex.minFilter = THREE.LinearFilter;
+                initialTex.magFilter = THREE.LinearFilter;
+                initialTex.anisotropy = 1;
             }
             const sharedMaterial = this.createTileMaterial(0, !!workerData.texture, initialTex);
             this.materialsToUpdate.add(sharedMaterial);

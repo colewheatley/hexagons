@@ -70,6 +70,7 @@ S3_PREFIX = "powfinder/hexagons/freiger"
 # =============================================================================
 TEXTURE_PADDING_PX = 448  # Must cover largest hex radius: scale=24 → 88.7m → 444px
 WEB_P_QUALITY = 10
+BAKE_LOSSLESS = False
 DEBUG_MODE = False
 
 # Stubai Center (For Mini-Bake) — precise coordinates for sector (73, 252)
@@ -329,7 +330,10 @@ def bake_sector_textures(SX, SY, valid_tifs, output_dir="frontend/app/aerial_til
     f_name = f"sector_{SX}_{SY}.webp"
     full_path = os.path.join(res_dirs["full"], f_name)
 
-    canvas.save(full_path, "WEBP", quality=WEB_P_QUALITY)
+    if BAKE_LOSSLESS:
+        canvas.save(full_path, "WEBP", lossless=True, quality=80, method=6)
+    else:
+        canvas.save(full_path, "WEBP", quality=WEB_P_QUALITY)
     upload_to_s3(full_path)
 
 def get_diamond_stats(grad_ds, p1, p2):
@@ -610,14 +614,23 @@ def bake_sector_binary(SX, SY, dem_ds, grad_ds, output_dir="frontend/app/tiles_b
     upload_to_s3(bin_path)
 
 def main():
-    global S3_ENABLED
+    global S3_ENABLED, BAKE_LOSSLESS, AERIAL_DIR
     parser = argparse.ArgumentParser(description="🧇 Waffle Iron v4.1 — Incremental Bake")
     parser.add_argument("--full", action="store_true", help="Run full global bake (defaults to Mini-Bake)")
     parser.add_argument("--center", type=str, help="Center sector as 'Q,R' (e.g. 73,252)")
     parser.add_argument("--grid", type=int, default=DEFAULT_GRID_SIZE,
                         help=f"Grid size NxN around center (1-16, default {DEFAULT_GRID_SIZE})")
+    parser.add_argument("--range", type=str, dest="range_arg",
+                        help="Explicit sector bounds as 'SX_MIN,SX_MAX,SY_MIN,SY_MAX' (e.g. 77,80,248,254)")
+    parser.add_argument("--lossless", action="store_true", help="Save aerial textures as lossless webp")
+    parser.add_argument("--aerial-dir", type=str, help="Override aerial TIF source directory")
     parser.add_argument("--force", action="store_true", help="Force re-bake of all sectors in range")
     args = parser.parse_args()
+
+    if args.lossless:
+        BAKE_LOSSLESS = True
+    if args.aerial_dir:
+        AERIAL_DIR = args.aerial_dir
 
     # Validate grid size
     grid_size = max(1, min(16, args.grid))
@@ -655,6 +668,9 @@ def main():
         print("🚀 RUNNING FULL GLOBAL BAKE (S3 Enabled)")
         print("⚠️  This will process ~3,486 TIFs and may take several hours.")
         S3_ENABLED = True
+    elif args.range_arg:
+        print(f"🏔  RUNNING RANGE BAKE ({args.range_arg}, S3 Disabled)")
+        S3_ENABLED = False
     else:
         print(f"🧪 RUNNING MINI-BAKE ({grid_size}×{grid_size} grid, S3 Disabled)")
         S3_ENABLED = False
@@ -678,7 +694,28 @@ def main():
     valid_tifs = []
 
     # Calculate Bounds
-    if args.full:
+    if args.range_arg:
+        try:
+            parts = list(map(int, args.range_arg.split(",")))
+            min_sx, max_sx, min_sy, max_sy = parts[0], parts[1], parts[2], parts[3]
+            print(f"📍 Explicit range: SX[{min_sx}..{max_sx}], SY[{min_sy}..{max_sy}]")
+        except (ValueError, IndexError):
+            print(f"⚠️  Invalid --range '{args.range_arg}'. Expected SX_MIN,SX_MAX,SY_MIN,SY_MAX.")
+            return
+        m_x1, m_y1, _, _ = coord_util.sector_id_to_bounds_meters(min_sx, min_sy)
+        _, _, m_x2, m_y2 = coord_util.sector_id_to_bounds_meters(max_sx, max_sy)
+        mini_box = box(m_x1, m_y1, m_x2, m_y2)
+        print("Filtering TIFs for range...")
+        tif_list = glob.glob(os.path.join(AERIAL_DIR, "*.tif"))
+        for f in tif_list:
+            try:
+                with rasterio.open(f) as src:
+                    if box(*src.bounds).intersects(mini_box):
+                        valid_tifs.append({"path": f, "poly": box(*src.bounds)})
+            except: pass
+        print(f"✅ Found {len(valid_tifs)} intersecting TIFs.")
+        grad_ds = generate_regional_gradient(dem, (m_x1, m_y1, m_x2, m_y2), upsample_factor=upsample)
+    elif args.full:
         print("Scanning ALL TIFs...")
         for f in glob.glob(os.path.join(AERIAL_DIR, "*.tif")):
             try:
